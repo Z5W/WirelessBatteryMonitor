@@ -31,8 +31,8 @@ namespace WirelessBatteryMoniter.UI
             StartPosition = FormStartPosition.Manual;
             BackColor = Theme.Background;
             DoubleBuffered = true;
-            Width = 390;
-            Height = 112;
+            Width = S(390);
+            Height = S(112);
             Cursor = Cursors.Hand;
             AutoScaleMode = AutoScaleMode.None;
 
@@ -96,6 +96,7 @@ namespace WirelessBatteryMoniter.UI
             Invalidate();
         }
 
+        private static int S(int value) { return (int)Math.Round(value * Theme.DpiScale); }
         private void Reposition()
         {
             Screen screen = Screen.PrimaryScreen;
@@ -118,7 +119,7 @@ namespace WirelessBatteryMoniter.UI
             }
 
             // Warning medallion.
-            RectangleF circle = new RectangleF(18f, 26f, 42f, 42f);
+            RectangleF circle = new RectangleF(S(18), S(26), S(42), S(42));
             using (SolidBrush red = new SolidBrush(Theme.Red))
             {
                 graphics.FillEllipse(red, circle);
@@ -130,29 +131,29 @@ namespace WirelessBatteryMoniter.UI
             int count = _devices == null ? 0 : _devices.Count;
             string title = count <= 1 ? "低电量提醒" : string.Format("{0} 台设备电量偏低", count);
             Theme.DrawText(graphics, title, Theme.Font(10.5f, FontStyle.Bold), Theme.Text,
-                new Rectangle(72, 13, Width - 112, 24), Theme.LeftMiddle);
+                new Rectangle(S(72), S(13), Width - S(112), S(24)), Theme.LeftMiddle);
 
             string summary = _devices == null
                 ? string.Empty
                 : string.Join(" · ", _devices.Take(3).Select(d => string.Format("{0} {1}%", d.Name, d.Level.HasValue ? d.Level.Value : 0)));
             if (count > 3) summary += string.Format(" 等 {0} 台", count);
             Theme.DrawText(graphics, summary, Theme.Font(8.5f, FontStyle.Regular), Theme.TextMuted,
-                new Rectangle(72, 38, Width - 98, 20), Theme.LeftMiddle);
+                new Rectangle(S(72), S(38), Width - S(98), S(20)), Theme.LeftMiddle);
 
             Theme.DrawText(graphics, string.Format("电量已低于 {0}%，请及时充电", _threshold),
                 Theme.Font(8.5f, FontStyle.Regular), Theme.Amber,
-                new Rectangle(72, 59, Width - 98, 19), Theme.LeftMiddle);
+                new Rectangle(S(72), S(59), Width - S(98), S(19)), Theme.LeftMiddle);
 
             Theme.DrawText(graphics, "点击查看设备详情", Theme.Font(7.6f, FontStyle.Regular), Theme.TextFaint,
-                new Rectangle(72, 80, Width - 98, 16), Theme.LeftMiddle);
+                new Rectangle(S(72), S(80), Width - S(98), S(16)), Theme.LeftMiddle);
 
             Theme.DrawText(graphics, "×", Theme.Font(12f, FontStyle.Regular), Theme.TextMuted,
-                new Rectangle(Width - 38, 8, 26, 24), Theme.CenterMiddle);
+                new Rectangle(Width - S(38), S(8), S(26), S(24)), Theme.CenterMiddle);
         }
 
         protected override void OnMouseClick(MouseEventArgs e)
         {
-            if (e.X >= Width - 44 && e.Y <= 38)
+            if (e.X >= Width - S(44) && e.Y <= S(38))
             {
                 Close();
                 return;

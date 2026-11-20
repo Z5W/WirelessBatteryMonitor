@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
@@ -11,6 +11,7 @@ namespace WirelessBatteryMoniter.UI
     {
         public AboutForm()
         {
+            SuspendLayout();
             Text = "关于 WirelessBatteryMoniter";
             AutoScaleDimensions = new SizeF(96f, 96f);
             AutoScaleMode = AutoScaleMode.Dpi;
@@ -98,6 +99,7 @@ namespace WirelessBatteryMoniter.UI
             actions.Controls.Add(close, 1, 0);
             layout.Controls.Add(actions);
 
+            AutoScaleDimensions = new SizeF(96,96); ResumeLayout(true);
             Shown += (s, e) => NativeMethods.ApplyDarkWindow(Handle);
         }
 

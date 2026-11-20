@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -12,497 +11,119 @@ namespace WirelessBatteryMoniter.UI
 {
     internal sealed class MainForm : Form
     {
-        private readonly Action _openSettings;
         private readonly Func<Task> _refresh;
-        private readonly PictureBox _logo;
-        private readonly Label _title;
-        private readonly Label _subtitle;
-        private readonly FlatButton _settingsButton;
-        private readonly StatusCard _statusCard;
-        private readonly Label _countLabel;
-        private readonly Label _statusText;
-        private readonly ToolTip _statusTip = new ToolTip { AutoPopDelay = 30000 };
-        private readonly Label _minLabel;
-        private readonly Label _demoBadge;
-        private readonly FlowLayoutPanel _deviceList;
-        private readonly EmptyState _emptyState;
-        private readonly Label _footerLabel;
-        private readonly FlatButton _refreshButton;
-
+        private readonly Panel _header, _footer, _notice;
+        private readonly Label _count, _low, _scan, _message;
+        private readonly FlowLayoutPanel _list;
+        private readonly Label _empty;
+        private readonly FlatButton _refreshButton, _details;
+        private readonly Dictionary<string, DeviceCard> _rows = new Dictionary<string, DeviceCard>(StringComparer.OrdinalIgnoreCase);
         private BatterySnapshot _snapshot = BatterySnapshot.Empty(false);
         private AppSettings _settings = new AppSettings();
-        private bool _allowClose;
-        private bool _busy;
-        private bool _trayHintShown;
-
-        public MainForm(Action openSettings, Func<Task> refresh)
-        {
-            _openSettings = openSettings;
-            _refresh = refresh;
-
-            Text = "WirelessBatteryMoniter";
-            AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(472, 668);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            ControlBox = true;
-            StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Theme.Background;
-            ForeColor = Theme.Text;
-            Font = Theme.Font(9f);
-            DoubleBuffered = true;
-            KeyPreview = true;
-            try
-            {
-                Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-            }
-            catch
-            {
-            }
-
-            _logo = new PictureBox
-            {
-                Location = new Point(20, 18),
-                Size = new Size(44, 44),
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.Transparent,
-                Image = LoadLogo()
-            };
-            Controls.Add(_logo);
-
-            _title = new Label
-            {
-                Text = "WirelessBatteryMoniter",
-                Location = new Point(76, 16),
-                Size = new Size(294, 28),
-                Font = Theme.Font(13f, FontStyle.Bold),
-                ForeColor = Theme.Text,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true
-            };
-            Controls.Add(_title);
-
-            _subtitle = new Label
-            {
-                Text = "无线设备电量监控",
-                Location = new Point(77, 44),
-                Size = new Size(294, 18),
-                Font = Theme.Font(8.5f, FontStyle.Regular),
-                ForeColor = Theme.TextMuted,
-                BackColor = Color.Transparent
-            };
-            Controls.Add(_subtitle);
-
-
-            _settingsButton = new FlatButton
-            {
-                Text = "设置",
-                Location = new Point(382, 22),
-                Size = new Size(70, 34),
-                Quiet = true,
-                TabIndex = 2
-            };
-            _settingsButton.Click += (s, e) => _openSettings();
-            Controls.Add(_settingsButton);
-
-            _statusCard = new StatusCard
-            {
-                Location = new Point(16, 86),
-                Size = new Size(440, 70)
-            };
-            Controls.Add(_statusCard);
-
-            _countLabel = new Label
-            {
-                Text = "正在读取…",
-                Location = new Point(32, 8),
-                Size = new Size(272, 27),
-                Font = Theme.Font(11f, FontStyle.Bold),
-                ForeColor = Theme.Text,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true
-            };
-            _statusCard.Controls.Add(_countLabel);
-
-            _statusText = new Label
-            {
-                Text = "正在扫描蓝牙设备",
-                Location = new Point(32, 35),
-                Size = new Size(218, 18),
-                Font = Theme.Font(8.5f, FontStyle.Regular),
-                ForeColor = Theme.TextMuted,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true
-            };
-            _statusCard.Controls.Add(_statusText);
-            _statusText.Click += (sender, args) => { if (_snapshot != null && !string.IsNullOrEmpty(_snapshot.Error)) MessageBox.Show(this, _snapshot.Error, "读取详情", MessageBoxButtons.OK, MessageBoxIcon.Information); };
-            Disposed += (sender, args) => _statusTip.Dispose();
-
-            _minLabel = new Label
-            {
-                Text = "--",
-                Location = new Point(306, 8),
-                Size = new Size(116, 27),
-                Font = Theme.Font(9.5f, FontStyle.Bold),
-                ForeColor = Theme.TextMuted,
-                BackColor = Color.Transparent,
-                TextAlign = ContentAlignment.MiddleRight
-            };
-            _statusCard.Controls.Add(_minLabel);
-
-            _demoBadge = new Label
-            {
-                Text = "演示模式",
-                Location = new Point(342, 36),
-                Size = new Size(80, 20),
-                Font = Theme.Font(8f, FontStyle.Regular),
-                ForeColor = Theme.Accent,
-                BackColor = Theme.AccentDark,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Visible = false
-            };
-            _statusCard.Controls.Add(_demoBadge);
-
-            _deviceList = new FlowLayoutPanel
-            {
-                Location = new Point(16, 170),
-                Size = new Size(440, 430),
-                AutoScroll = true,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                BackColor = Theme.Background,
-                Padding = new Padding(0),
-                Margin = new Padding(0),
-                TabStop = false,
-                Visible = false
-            };
-            Controls.Add(_deviceList);
-
-            _emptyState = new EmptyState
-            {
-                Location = new Point(16, 170),
-                Size = new Size(440, 430)
-            };
-            Controls.Add(_emptyState);
-
-            _footerLabel = new Label
-            {
-                Text = "等待首次刷新…",
-                Location = new Point(16, 618),
-                Size = new Size(176, 24),
-                Font = Theme.Font(8.3f, FontStyle.Regular),
-                ForeColor = Theme.TextFaint,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true
-            };
-            Controls.Add(_footerLabel);
-
-            FlatButton aboutButton = new FlatButton
-            {
-                Text = "关于",
-                Location = new Point(196, 610),
-                Size = new Size(70, 36),
-                Quiet = true,
-                TabIndex = 3
-            };
-            aboutButton.Click += (s, e) =>
-            {
-                using (AboutForm form = new AboutForm()) form.ShowDialog(this);
-            };
-            Controls.Add(aboutButton);
-
-            FlatButton exitButton = new FlatButton
-            {
-                Text = "退出",
-                Location = new Point(270, 610),
-                Size = new Size(70, 36),
-                Quiet = true,
-                TabIndex = 4
-            };
-            exitButton.Click += delegate
-            {
-                EventHandler handler = ExitRequested;
-                if (handler != null) handler(this, EventArgs.Empty);
-            };
-            Controls.Add(exitButton);
-
-            _refreshButton = new FlatButton
-            {
-                Text = "立即刷新",
-                Location = new Point(352, 610),
-                Size = new Size(104, 36),
-                TabIndex = 1
-            };
-            _refreshButton.Click += async (s, e) => await RefreshAsync();
-            Controls.Add(_refreshButton);
-
-            FormClosing += MainForm_FormClosing;
-            Shown += (s, e) =>
-            {
-                NativeMethods.ApplyDarkWindow(Handle);
-                UpdateCards();
-            };
-            KeyDown += (s, e) =>
-            {
-                if (e.KeyCode == Keys.Escape && !_allowClose) Hide();
-            };
-        }
-
+        private bool _allowClose, _busy, _trayHintShown;
         public event EventHandler MinimizedToTray;
         public event EventHandler ExitRequested;
-
-        public void UpdateSnapshot(BatterySnapshot snapshot, AppSettings settings)
+        public MainForm(Action openSettings, Func<Task> refresh)
         {
-            if (snapshot == null) return;
-            _snapshot = snapshot;
-            _settings = settings ?? _settings;
-
-            int connected = snapshot.ConnectedCount;
-            int disconnected = snapshot.DisconnectedCount;
-            _countLabel.Text = connected == 0
-                ? "暂无已连接设备"
-                : string.Format("{0} 台已连接", connected);
-
-            if (connected > 0 && disconnected > 0 && _settings.ShowDisconnected)
-            {
-                _countLabel.Text += string.Format("  ·  {0} 台未连接", disconnected);
-            }
-
-            int? min = snapshot.MinimumLevel;
-            if (min.HasValue)
-            {
-                _minLabel.Text = string.Format("最低 {0}%", min.Value);
-                _minLabel.ForeColor = Theme.BatteryColor(min, _settings.LowBatteryThreshold);
-            }
-            else
-            {
-                _minLabel.Text = "暂无电量";
-                _minLabel.ForeColor = Theme.TextFaint;
-            }
-
-            _statusTip.SetToolTip(_statusText, snapshot.Error ?? string.Empty);
-            _statusText.Cursor = string.IsNullOrEmpty(snapshot.Error) ? Cursors.Default : Cursors.Hand;
-            if (!string.IsNullOrEmpty(snapshot.Error))
-            {
-                _statusText.Text = "读取异常 · 点击查看详情";
-                _statusText.ForeColor = Theme.Red;
-            }
-            else
-            {
-                _statusText.Text = string.Format("正在监控 · 每 {0} 秒刷新", _settings.PollSeconds);
-                _statusText.ForeColor = Theme.TextMuted;
-            }
-
-            _demoBadge.Visible = snapshot.IsDemo;
-            _footerLabel.Text = string.Format(
-                "上次更新 {0:HH:mm:ss}",
-                snapshot.Timestamp);
-
-            UpdateCards();
+            SuspendLayout();
+            _refresh = refresh;
+            Text = "WirelessBatteryMoniter";
+            AutoScaleDimensions = new SizeF(96,96); AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(520,680); MinimumSize = new Size(480,540);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Theme.Background; ForeColor = Theme.Text; Font = Theme.Font(10.5f);
+            DoubleBuffered = true; KeyPreview = true;
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            _header = new Panel { Width = 520, Dock = DockStyle.Top, Height = 124 };
+            var logo = new PictureBox { Location = new Point(24,24), Size = new Size(40,40), SizeMode = PictureBoxSizeMode.Zoom };
+            if (Icon != null) logo.Image = Icon.ToBitmap();
+            _header.Controls.Add(logo);
+            AddLabel(_header,"无线设备电量",80,19,310,30,15,Theme.Text,FontStyle.Bold);
+            AddLabel(_header,"WirelessBatteryMoniter",80,51,310,22,10.5f,Theme.TextMuted,FontStyle.Regular);
+            var settings = Button(_header,"设置",424,26,72,36); settings.Anchor = AnchorStyles.Top|AnchorStyles.Right; settings.Quiet = true;
+            settings.Click += (s,e) => openSettings();
+            _count = AddLabel(_header,"等待首次扫描",24,92,290,24,12,Theme.Text,FontStyle.Bold);
+            _low = AddLabel(_header,"",320,92,176,24,10.5f,Theme.Amber,FontStyle.Regular);
+            _low.Anchor = AnchorStyles.Top|AnchorStyles.Right; _low.TextAlign = ContentAlignment.MiddleRight;
+            _footer = new Panel { Width = 520, Dock = DockStyle.Bottom, Height = 116, BackColor = Theme.Surface };
+            _scan = AddLabel(_footer,"等待首次扫描…",24,15,335,22,9.75f,Theme.TextMuted,FontStyle.Regular);
+            AddLabel(_footer,"关闭窗口后继续在托盘运行",24,40,340,22,9.75f,Theme.TextMuted,FontStyle.Regular);
+            var about = Button(_footer,"关于",16,72,64,32); about.Quiet = true;
+            about.Click += (s,e) => { using(var form = new AboutForm()) form.ShowDialog(this); };
+            var exit = Button(_footer,"退出",84,72,64,32); exit.Quiet = true;
+            exit.Click += (s,e) => { if (ExitRequested != null) ExitRequested(this,EventArgs.Empty); };
+            _refreshButton = Button(_footer,"立即刷新",376,38,120,40); _refreshButton.Accent = true;
+            _refreshButton.Anchor = AnchorStyles.Top|AnchorStyles.Right;
+            _refreshButton.Click += async (s,e) => await RefreshAsync();
+            _notice = new Panel { Width = 520, Dock = DockStyle.Top, Height = 44, BackColor = Theme.Surface, Visible = false };
+            _message = AddLabel(_notice,"部分设备读取失败",24,10,340,24,10.5f,Theme.Amber,FontStyle.Regular);
+            _details = Button(_notice,"查看详情",400,4,96,36); _details.Quiet = true; _details.Anchor = AnchorStyles.Top|AnchorStyles.Right;
+            _details.Click += (s,e) => { using(var form = new ErrorDetailsForm(_snapshot.Error)) form.ShowDialog(this); };
+            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8,0,8,0) };
+            _list = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+            _empty = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Theme.TextMuted, Font = Theme.Font(12), Text = "尚未发现支持读取电量的设备\r\n\r\n连接设备后，点击下方“重新扫描”" };
+            body.Controls.Add(_list); body.Controls.Add(_empty);
+            Controls.Add(body); Controls.Add(_notice); Controls.Add(_header); Controls.Add(_footer);
+            _list.SizeChanged += (s,e) => ResizeRows();
+            Shown += (s,e) => { NativeMethods.ApplyDarkWindow(Handle); ResizeRows(); };
+            FormClosing += (s,e) => {
+                if (_allowClose || e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.TaskManagerClosing) return;
+                e.Cancel = true; Hide();
+                if (!_trayHintShown) { _trayHintShown = true; if (MinimizedToTray != null) MinimizedToTray(this,EventArgs.Empty); }
+            };
+            KeyDown += (s,e) => { if (e.KeyCode == Keys.Escape) Close(); };
+            AutoScaleDimensions = new SizeF(96,96); ResumeLayout(true);
+            Disposed += (s,e) => { if (logo.Image != null) logo.Image.Dispose(); };
         }
-
-        public void SetBusy(bool busy)
+        internal static Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size,Color color,FontStyle style)
         {
-            _busy = busy;
-            _refreshButton.Enabled = !busy;
-            _refreshButton.Text = busy ? "刷新中…" : "立即刷新";
-            if (busy)
-            {
-                _statusText.Text = "正在读取设备电量…";
-                _statusText.ForeColor = Theme.Accent;
-            }
+            var label = new Label { Text=text, Location=new Point(x,y),Size=new Size(w,h),Font=Theme.Font(size,style),ForeColor=color,UseMnemonic=false };
+            parent.Controls.Add(label); return label;
         }
-
-        public void CloseForExit()
+        internal static FlatButton Button(Control parent,string text,int x,int y,int w,int h)
         {
-            _allowClose = true;
-            Close();
+            var b = new FlatButton { Text=text,Location=new Point(x,y),Size=new Size(w,h),TabIndex=parent.Controls.Count };
+            parent.Controls.Add(b); return b;
         }
-
-        private async Task RefreshAsync()
+        public void UpdateSnapshot(BatterySnapshot snapshot,AppSettings settings)
         {
-            if (_busy) return;
-            try
-            {
-                await _refresh();
+            if(snapshot == null) return;
+            _snapshot=snapshot; _settings=settings ?? _settings;
+            _count.Text=snapshot.ConnectedCount+" 台已连接"+(snapshot.IsDemo ? " · 演示" : "");
+            int low=snapshot.Devices.Count(d=>d.IsConnected && !d.IsStale && d.Level.HasValue && d.Level.Value<=_settings.LowBatteryThreshold);
+            _low.Text=low>0 ? low+" 台电量偏低" : "电量状态良好";
+            _low.ForeColor=low>0 ? Theme.Amber : Theme.TextMuted;
+            if(low==0 && snapshot.Devices.Any(d=>d.IsConnected && (d.IsStale || !d.HasLevel))) _low.Text="部分读数待更新";
+            if(snapshot.KnownBatteryCount==0) _low.Text="等待有效读数";
+            _notice.Visible=!string.IsNullOrEmpty(snapshot.Error);
+            _message.Text=snapshot.HasDevices ? "部分设备读取失败" : "设备读取失败";
+            _scan.Text="上轮扫描完成于 "+snapshot.Timestamp.ToString("HH:mm:ss");
+            var devices=snapshot.Devices.Where(d=>_settings.ShowDisconnected || d.IsConnected).ToList();
+            var ids=new HashSet<string>(devices.Select(d=>d.Id),StringComparer.OrdinalIgnoreCase);
+            _list.SuspendLayout();
+            foreach(var id in _rows.Keys.Where(id=>!ids.Contains(id)).ToList()) { var row=_rows[id]; _list.Controls.Remove(row);row.Dispose();_rows.Remove(id); }
+            // Existing controls keep their position; newly discovered devices are appended.
+            foreach(var d in devices) {
+                DeviceCard row;
+                if(!_rows.TryGetValue(d.Id,out row)) { row=new DeviceCard();_rows.Add(d.Id,row);_list.Controls.Add(row); }
+                row.UpdateDevice(d,_settings.LowBatteryThreshold);
             }
-            catch (Exception ex)
-            {
-                Services.AppLog.Error("Manual refresh failed.", ex);
-            }
+            _list.ResumeLayout(); ResizeRows();
+            _list.Visible=devices.Count>0; _empty.Visible=devices.Count==0;
+            SetBusy(_busy);
         }
-
-        private void UpdateCards()
-        {
-            if (IsDisposed) return;
-
-            IEnumerable<DeviceBatteryInfo> visible = _snapshot.Devices;
-            if (!_settings.ShowDisconnected)
-            {
-                visible = visible.Where(d => d.IsConnected);
-            }
-            List<DeviceBatteryInfo> devices = visible.ToList();
-
-            _deviceList.SuspendLayout();
-            Control[] oldCards = _deviceList.Controls.Cast<Control>().ToArray();
-            _deviceList.Controls.Clear();
-            foreach (Control control in oldCards)
-            {
-                control.Dispose();
-            }
-
-            int cardWidth = Math.Max(320, _deviceList.ClientSize.Width - 4);
-            foreach (DeviceBatteryInfo device in devices)
-            {
-                DeviceCard card = new DeviceCard
-                {
-                    Width = cardWidth
-                };
-                card.UpdateDevice(device, _settings.LowBatteryThreshold);
-                _deviceList.Controls.Add(card);
-            }
-            _deviceList.ResumeLayout();
-
-            bool hasVisible = devices.Count > 0;
-            _deviceList.Visible = hasVisible;
-            _emptyState.Visible = !hasVisible;
-            if (!hasVisible)
-            {
-                _emptyState.SetError(_snapshot.Error);
-            }
+        private void ResizeRows() {
+            int width=Math.Max(100,_list.ClientSize.Width-SystemInformation.VerticalScrollBarWidth-2);
+            foreach(var row in _rows.Values) row.Width=width;
         }
-
-        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            NativeMethods.ApplyDarkWindow(Handle);
-            if (_allowClose) return;
-
-            if (e.CloseReason == CloseReason.WindowsShutDown
-                || e.CloseReason == CloseReason.TaskManagerClosing)
-            {
-                _allowClose = true;
-                return;
-            }
-
-            e.Cancel = true;
-            Hide();
-            if (!_trayHintShown)
-            {
-                _trayHintShown = true;
-                EventHandler handler = MinimizedToTray;
-                if (handler != null) handler(this, EventArgs.Empty);
-            }
+        public void SetBusy(bool busy) { _busy=busy;_refreshButton.Enabled=!busy;_refreshButton.Text=busy ? "正在读取…" : (_rows.Count==0 ? "重新扫描" : "立即刷新"); }
+        private async Task RefreshAsync() {
+            if(_busy) return;
+            SetBusy(true);
+            try { await _refresh(); }
+            catch(Exception ex) { Services.AppLog.Error("Manual refresh failed.",ex); using(var f=new ErrorDetailsForm(ex.Message)) f.ShowDialog(this); }
+            finally { if(!IsDisposed) SetBusy(false); }
         }
-
-        private static Image LoadLogo()
-        {
-            try
-            {
-                Icon icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-                if (icon != null)
-                {
-                    using (icon)
-                    {
-                        return icon.ToBitmap();
-                    }
-                }
-            }
-            catch
-            {
-            }
-            return null;
-        }
-
-        private sealed class StatusCard : Panel
-        {
-            public StatusCard()
-            {
-                SetStyle(
-                    ControlStyles.AllPaintingInWmPaint
-                    | ControlStyles.OptimizedDoubleBuffer
-                    | ControlStyles.UserPaint
-                    | ControlStyles.ResizeRedraw,
-                    true);
-                BackColor = Theme.Background;
-            }
-
-            protected override void OnPaint(PaintEventArgs e)
-            {
-                Theme.Prepare(e.Graphics);
-                RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
-                using (SolidBrush brush = new SolidBrush(Theme.Surface))
-                {
-                    Theme.FillRounded(e.Graphics, brush, rect, 14f);
-                }
-                using (Pen pen = new Pen(Theme.BorderSoft))
-                {
-                    Theme.DrawRounded(e.Graphics, pen, rect, 14f);
-                }
-                using (SolidBrush dot = new SolidBrush(Theme.Accent))
-                {
-                    e.Graphics.FillEllipse(dot, 16f, 19f, 8f, 8f);
-                }
-            }
-        }
-
-        private sealed class EmptyState : Control
-        {
-            private string _error;
-
-            public EmptyState()
-            {
-                SetStyle(
-                    ControlStyles.AllPaintingInWmPaint
-                    | ControlStyles.OptimizedDoubleBuffer
-                    | ControlStyles.UserPaint
-                    | ControlStyles.ResizeRedraw
-                    | ControlStyles.SupportsTransparentBackColor,
-                    true);
-                BackColor = Color.Transparent;
-            }
-
-            public void SetError(string error)
-            {
-                _error = error;
-                Invalidate();
-            }
-
-            protected override void OnPaint(PaintEventArgs e)
-            {
-                Theme.Prepare(e.Graphics);
-                int centerX = Width / 2;
-                RectangleF circle = new RectangleF(centerX - 34f, 38f, 68f, 68f);
-                using (SolidBrush back = new SolidBrush(Theme.Surface))
-                {
-                    e.Graphics.FillEllipse(back, circle);
-                }
-                using (Pen border = new Pen(Theme.BorderSoft))
-                {
-                    e.Graphics.DrawEllipse(border, circle);
-                }
-                Theme.DrawText(e.Graphics, "\uE702", Theme.IconFont(27f), Theme.Accent,
-                    new Rectangle((int)circle.X, (int)circle.Y, (int)circle.Width, (int)circle.Height),
-                    Theme.CenterMiddle);
-
-                Rectangle titleRect = new Rectangle(20, 122, Width - 40, 28);
-                Theme.DrawText(e.Graphics, "未发现支持电量服务的设备", Theme.Font(11f, FontStyle.Bold),
-                    Theme.Text, titleRect, Theme.CenterMiddle);
-
-                string body = string.IsNullOrEmpty(_error)
-                    ? "请先在 Windows 设置中配对蓝牙设备\r\n设备连接后会自动出现在这里"
-                    : _error;
-                Rectangle bodyRect = new Rectangle(36, 156, Width - 72, 62);
-                Theme.DrawText(e.Graphics, body, Theme.Font(8.8f, FontStyle.Regular),
-                    string.IsNullOrEmpty(_error) ? Theme.TextMuted : Theme.Amber,
-                    bodyRect,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
-
-                Rectangle hintRect = new Rectangle(20, 232, Width - 40, 24);
-                Theme.DrawText(e.Graphics, "支持标准蓝牙 Battery Service 与常见 2.4G HID 接收器", Theme.Font(8f, FontStyle.Regular),
-                    Theme.TextFaint, hintRect, Theme.CenterMiddle);
-            }
-        }
+        public void CloseForExit() { _allowClose=true; Close(); }
     }
 }
-

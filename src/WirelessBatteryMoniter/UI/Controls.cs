@@ -51,6 +51,7 @@ namespace WirelessBatteryMoniter.UI
         protected override void OnPaint(PaintEventArgs e)
         {
             Theme.Prepare(e.Graphics);
+
             RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
             Color fill;
             Color border;
@@ -96,6 +97,7 @@ namespace WirelessBatteryMoniter.UI
                 }
             }
 
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Theme.Accent, BackColor);
             Theme.DrawText(e.Graphics, Text, Font, text, ClientRectangle, Theme.CenterMiddle);
         }
 
@@ -144,6 +146,8 @@ namespace WirelessBatteryMoniter.UI
             base.OnKeyDown(e);
         }
 
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
         protected override void OnEnabledChanged(EventArgs e)
         {
             Invalidate();
@@ -196,6 +200,7 @@ namespace WirelessBatteryMoniter.UI
         protected override void OnPaint(PaintEventArgs e)
         {
             Theme.Prepare(e.Graphics);
+
             RectangleF track = new RectangleF(1f, 3f, Width - 2f, Height - 6f);
             Color trackColor = _checked ? Theme.Accent : Theme.SurfaceRaised;
             using (SolidBrush brush = new SolidBrush(Enabled ? trackColor : Theme.WithAlpha(trackColor, 90)))
@@ -211,7 +216,8 @@ namespace WirelessBatteryMoniter.UI
                 }
             }
 
-            float knobSize = Height - 10f;
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Theme.Accent, BackColor);
+            float knobSize = Height - 10f * Theme.DpiScale;
             float knobX = _checked ? Width - knobSize - 5f : 5f;
             using (SolidBrush knob = new SolidBrush(Enabled ? Color.White : Color.FromArgb(190, 200, 210)))
             {
@@ -236,6 +242,8 @@ namespace WirelessBatteryMoniter.UI
             base.OnKeyDown(e);
         }
 
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
         protected override void OnEnabledChanged(EventArgs e)
         {
             Invalidate();
@@ -329,6 +337,7 @@ namespace WirelessBatteryMoniter.UI
         protected override void OnPaint(PaintEventArgs e)
         {
             Theme.Prepare(e.Graphics);
+
             RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
             using (SolidBrush brush = new SolidBrush(Theme.SurfaceRaised))
             {
@@ -339,13 +348,14 @@ namespace WirelessBatteryMoniter.UI
                 Theme.DrawRounded(e.Graphics, border, rect, 9f);
             }
 
-            float buttonWidth = 34f;
+            float buttonWidth = 34f * Theme.DpiScale;
             using (Pen separator = new Pen(Theme.BorderSoft))
             {
                 e.Graphics.DrawLine(separator, buttonWidth, 7f, buttonWidth, Height - 7f);
                 e.Graphics.DrawLine(separator, Width - buttonWidth, 7f, Width - buttonWidth, Height - 7f);
             }
 
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Theme.Accent, BackColor);
             Color minusColor = Enabled ? (_minusHover ? Theme.Accent : Theme.TextMuted) : Theme.TextFaint;
             Color plusColor = Enabled ? (_plusHover ? Theme.Accent : Theme.TextMuted) : Theme.TextFaint;
             Theme.DrawText(e.Graphics, "\u2212", Theme.Font(12f, FontStyle.Regular), minusColor,
@@ -362,11 +372,11 @@ namespace WirelessBatteryMoniter.UI
         protected override void OnMouseDown(MouseEventArgs e)
         {
             if (!Enabled) return;
-            if (e.X <= 34)
+            if (e.X <= 34 * Theme.DpiScale)
             {
                 SetValue(_value - 1, true);
             }
-            else if (e.X >= Width - 34)
+            else if (e.X >= Width - 34 * Theme.DpiScale)
             {
                 SetValue(_value + 1, true);
             }
@@ -376,8 +386,8 @@ namespace WirelessBatteryMoniter.UI
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            bool minus = e.X <= 34;
-            bool plus = e.X >= Width - 34;
+            bool minus = e.X <= 34 * Theme.DpiScale;
+            bool plus = e.X >= Width - 34 * Theme.DpiScale;
             if (minus != _minusHover || plus != _plusHover)
             {
                 _minusHover = minus;
@@ -395,6 +405,7 @@ namespace WirelessBatteryMoniter.UI
             base.OnMouseLeave(e);
         }
 
+        protected override bool IsInputKey(Keys keyData) { return (keyData & Keys.KeyCode) == Keys.Up || (keyData & Keys.KeyCode) == Keys.Down || (keyData & Keys.KeyCode) == Keys.Left || (keyData & Keys.KeyCode) == Keys.Right || base.IsInputKey(keyData); }
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             if (!Enabled) return;
@@ -418,6 +429,8 @@ namespace WirelessBatteryMoniter.UI
             base.OnKeyDown(e);
         }
 
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
         protected override void OnEnabledChanged(EventArgs e)
         {
             Invalidate();
@@ -425,5 +438,3 @@ namespace WirelessBatteryMoniter.UI
         }
     }
 }
-
-

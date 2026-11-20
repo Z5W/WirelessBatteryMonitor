@@ -10,29 +10,33 @@ namespace WirelessBatteryMoniter.UI
 {
     internal static class Theme
     {
-        public static readonly Color Background = Color.FromArgb(14, 17, 23);
+        public static readonly Color Background = Color.FromArgb(22, 27, 34);
         public static readonly Color BackgroundAlt = Color.FromArgb(17, 21, 29);
-        public static readonly Color Surface = Color.FromArgb(24, 29, 39);
+        public static readonly Color Surface = Color.FromArgb(34, 42, 53);
         public static readonly Color SurfaceHover = Color.FromArgb(31, 37, 49);
         public static readonly Color SurfaceRaised = Color.FromArgb(36, 43, 57);
         public static readonly Color Border = Color.FromArgb(43, 52, 67);
         public static readonly Color BorderSoft = Color.FromArgb(33, 40, 53);
-        public static readonly Color Text = Color.FromArgb(243, 247, 252);
-        public static readonly Color TextMuted = Color.FromArgb(153, 165, 184);
-        public static readonly Color TextFaint = Color.FromArgb(112, 124, 143);
-        public static readonly Color Accent = Color.FromArgb(76, 194, 255);
+        public static readonly Color Text = Color.FromArgb(237, 242, 247);
+        public static readonly Color TextMuted = Color.FromArgb(170, 183, 199);
+        public static readonly Color TextFaint = Color.FromArgb(170, 183, 199);
+        public static readonly Color Accent = Color.FromArgb(104, 184, 247);
         public static readonly Color AccentDark = Color.FromArgb(16, 57, 79);
-        public static readonly Color Green = Color.FromArgb(61, 220, 151);
-        public static readonly Color Amber = Color.FromArgb(245, 185, 66);
-        public static readonly Color Red = Color.FromArgb(255, 107, 129);
+        public static readonly Color Green = Color.FromArgb(104, 184, 247);
+        public static readonly Color Amber = Color.FromArgb(240, 180, 90);
+        public static readonly Color Red = Color.FromArgb(240, 180, 90);
         public static readonly Color BadgeText = Color.FromArgb(9, 24, 34);
 
+        // The manifest opts into system DPI awareness; GDI reports the native system DPI.
+        // Mutable only for the offline layout harness; production uses the system value.
+        public static float DpiScale = ReadDpiScale();
+        private static float ReadDpiScale() { using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) return g.DpiX / 96f; }
         private static readonly Dictionary<string, Font> Fonts = new Dictionary<string, Font>();
         private static readonly object FontGate = new object();
 
         public static Font Font(float size, FontStyle style = FontStyle.Regular)
         {
-            return GetFont("Microsoft YaHei UI", size, style);
+            return GetFont("Segoe UI", size, style);
         }
 
         public static Font IconFont(float size)

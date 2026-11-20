@@ -1,134 +1,75 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using WirelessBatteryMoniter.Models;
 
 namespace WirelessBatteryMoniter.UI
 {
-    internal sealed class DeviceCard : Control
+    // A list row, with real controls for wrapping, accessibility and DPI scaling.
+    internal sealed class DeviceCard : UserControl
     {
         private DeviceBatteryInfo _device;
-        private int _threshold = 20;
-        private bool _hover;
-
+        private readonly Label _name, _level, _state, _time;
+        private readonly ToolTip _tip = new ToolTip { AutoPopDelay = 30000 };
+        private int _threshold;
         public DeviceCard()
         {
-            SetStyle(
-                ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.OptimizedDoubleBuffer
-                | ControlStyles.UserPaint
-                | ControlStyles.ResizeRedraw
-                | ControlStyles.SupportsTransparentBackColor,
-                true);
-            BackColor = Color.Transparent;
-            Height = 92;
-            Margin = new Padding(0, 0, 0, 10);
-            Cursor = Cursors.Default;
+            DoubleBuffered = true;
+            BackColor = Theme.Background;
+            Margin = Padding.Empty;
             AccessibleRole = AccessibleRole.ListItem;
+            _name = MakeLabel(12, FontStyle.Bold);
+            _level = MakeLabel(21, FontStyle.Bold);
+            _level.TextAlign = ContentAlignment.TopRight;
+            _state = MakeLabel(10.5f, FontStyle.Regular);
+            _time = MakeLabel(9.75f, FontStyle.Regular);
+            _state.ForeColor = _time.ForeColor = Theme.TextMuted;
         }
-
-        public DeviceBatteryInfo Device
+        private Label MakeLabel(float size, FontStyle style)
         {
-            get { return _device; }
+            Label label = new Label { Font = Theme.Font(size, style), ForeColor = Theme.Text, UseMnemonic = false };
+            Controls.Add(label); return label;
         }
-
+        public DeviceBatteryInfo Device { get { return _device; } }
         public void UpdateDevice(DeviceBatteryInfo device, int threshold)
         {
-            _device = device;
-            _threshold = threshold;
-            AccessibleName = device == null ? string.Empty : device.Name + " " + device.LevelText;
-            Invalidate();
+            _device = device; _threshold = threshold;
+            _name.Text = device.Name;
+            _level.Text = device.HasLevel ? device.LevelText : "—";
+            _level.ForeColor = device.IsStale || !device.IsConnected ? Theme.TextMuted : Theme.BatteryColor(device.Level, threshold);
+            _state.Text = device.Kind + " · " + TrayTextFormatter.DeviceType(device.Name) + " · " + device.StateText;
+            if (!device.HasLevel) _state.Text += " · 暂未获取电量";
+            else if (!device.IsStale && device.IsConnected && device.Level <= threshold) _state.Text += " · 电量偏低";
+            _time.Text = device.HasLevel ? (device.IsStale ? "上次读数 " + device.LevelText + " · " : "") + "最近成功读取：" + device.LastSeen.ToString("HH:mm:ss") : "等待首次有效读数";
+            AccessibleName = device.Name + " " + _level.Text + " " + _state.Text + " " + _time.Text;
+            _tip.SetToolTip(_name, device.Name);
+            PerformLayout(); Invalidate();
         }
-
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            base.OnLayout(e);
+            if (_time == null) return;
+            float s = Theme.DpiScale;
+            int pad = (int)(16*s), gap = (int)(8*s), levelWidth = (int)(100*s);
+            int nameWidth = Math.Max(80, Width - pad*2 - levelWidth - gap);
+            int nameHeight = Math.Max((int)(28*s), TextRenderer.MeasureText(_name.Text, _name.Font, new Size(nameWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height);
+            _name.SetBounds(pad, pad, nameWidth, nameHeight);
+            _level.SetBounds(Width-pad-levelWidth, pad-3, levelWidth, (int)(40*s));
+            int y = pad + Math.Max(nameHeight, (int)(36*s)) + gap;
+            int stateHeight = Math.Max((int)(22*s), TextRenderer.MeasureText(_state.Text, _state.Font, new Size(Width-pad*2, int.MaxValue), TextFormatFlags.WordBreak).Height);
+            _state.SetBounds(pad,y,Width-pad*2,stateHeight);
+            _time.SetBounds(pad,y+stateHeight+(int)(17*s),Width-pad*2,(int)(22*s));
+            Height = y+stateHeight+(int)(54*s);
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
+            base.OnPaint(e);
             if (_device == null) return;
-            Theme.Prepare(e.Graphics);
-            Graphics graphics = e.Graphics;
-            RectangleF card = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
-            Color surface = _device.IsConnected
-                ? (_hover ? Theme.SurfaceHover : Theme.Surface)
-                : Theme.WithAlpha(Theme.Surface, 175);
-            Color border = _hover ? Theme.Border : Theme.BorderSoft;
-
-            using (SolidBrush brush = new SolidBrush(surface))
-            {
-                Theme.FillRounded(graphics, brush, card, 14f);
-            }
-            using (Pen pen = new Pen(border))
-            {
-                Theme.DrawRounded(graphics, pen, card, 14f);
-            }
-
-            Color levelColor = _device.IsConnected
-                ? Theme.BatteryColor(_device.Level, _threshold)
-                : Theme.TextFaint;
-
-            RectangleF iconCircle = new RectangleF(16f, 24f, 40f, 40f);
-            using (SolidBrush iconBack = new SolidBrush(_device.IsConnected ? Theme.SurfaceRaised : Theme.WithAlpha(Theme.SurfaceRaised, 130)))
-            {
-                graphics.FillEllipse(iconBack, iconCircle);
-            }
-
-            string glyph = GlyphFor(_device.Name);
-            Rectangle iconRect = new Rectangle((int)iconCircle.X, (int)iconCircle.Y, (int)iconCircle.Width, (int)iconCircle.Height);
-            Theme.DrawText(graphics, glyph, Theme.IconFont(15f), _device.IsConnected ? Theme.Accent : Theme.TextFaint,
-                iconRect, Theme.CenterMiddle);
-
-            Rectangle nameRect = new Rectangle(70, 13, Width - 70 - 92, 25);
-            Theme.DrawText(graphics, _device.Name, Theme.Font(10.5f, FontStyle.Bold),
-                _device.IsConnected ? Theme.Text : Theme.TextMuted, nameRect, Theme.LeftMiddle);
-
-            Rectangle percentRect = new Rectangle(Width - 92, 11, 76, 28);
-            Theme.DrawText(graphics, _device.LevelText, Theme.Font(12.5f, FontStyle.Bold),
-                levelColor, percentRect, Theme.RightMiddle);
-
-            string state = _device.Kind + " · " + _device.StateText;
-            if (_device.IsConnected && _device.Level.HasValue && _device.Level.Value <= _threshold)
-            {
-                state += " · 低电量";
-            }
-            Rectangle stateRect = new Rectangle(70, 38, Width - 70 - 18, 19);
-            Theme.DrawText(graphics, state, Theme.Font(8.5f, FontStyle.Regular),
-                _device.IsConnected ? Theme.TextMuted : Theme.TextFaint, stateRect, Theme.LeftMiddle);
-
-            RectangleF bar = new RectangleF(70f, 67f, Width - 70f - 18f, 6f);
-            Color track = _device.IsConnected ? Theme.BorderSoft : Theme.WithAlpha(Theme.BorderSoft, 110);
-            Theme.DrawBatteryBar(graphics, bar, _device.Level, levelColor, track);
-
-            if (_hover)
-            {
-                using (SolidBrush dot = new SolidBrush(_device.IsConnected ? Theme.Accent : Theme.TextFaint))
-                {
-                    graphics.FillEllipse(dot, Width - 13f, Height / 2f - 2f, 4f, 4f);
-                }
-            }
+            float s = Theme.DpiScale;
+            Theme.DrawBatteryBar(e.Graphics, new RectangleF(16*s,_state.Bottom+7*s,Width-32*s,4*s), _device.Level,
+                _device.IsStale || !_device.IsConnected ? Theme.TextMuted : Theme.BatteryColor(_device.Level,_threshold), Theme.Border);
+            using (Pen pen = new Pen(Theme.Border)) e.Graphics.DrawLine(pen,16*s,Height-1,Width-16*s,Height-1);
         }
-
-        private static string GlyphFor(string name)
-        {
-            string type = TrayTextFormatter.DeviceType(name);
-            if (type == "鼠标") return "\uE962";
-            if (type == "键盘") return "\uE765";
-            if (type == "耳机") return "\uE7F6";
-            if (type == "手柄") return "\uE7FC";
-            return "\uE702";
-        }
-
-        protected override void OnMouseEnter(EventArgs e)
-        {
-            _hover = true;
-            Invalidate();
-            base.OnMouseEnter(e);
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            _hover = false;
-            Invalidate();
-            base.OnMouseLeave(e);
-        }
+        protected override void Dispose(bool disposing) { if (disposing) _tip.Dispose(); base.Dispose(disposing); }
     }
 }
-

@@ -1,0 +1,11 @@
+WirelessBatteryMoniter 1.2.3
+
+1. 解压完整压缩包，运行 Start.cmd：安装或升级到固定目录后启动。Install.cmd 只安装。
+2. 固定程序：%LOCALAPPDATA%\Programs\WirelessBatteryMoniter\WirelessBatteryMoniterTray.exe。
+3. 日常从桌面快捷方式启动。升级前在托盘菜单点击“退出”，再运行新包的 Start.cmd。
+4. 不直接运行开发/发布目录中的 EXE；旧版目录仅用于归档，避免重复托盘记录。
+5. 托盘可能在 ^ 隐藏区；右键“托盘图标设置…”可进入系统图标设置。
+6. 配置保留在 %APPDATA%\WirelessBatteryMoniter，升级不删除配置。缓存是历史读数。
+7. 程序未签名，可能提示未知发布者；安装不关闭安全检查，不清空系统托盘缓存。
+
+完整说明见 README.md。发布包不含历史日志或开发工具。

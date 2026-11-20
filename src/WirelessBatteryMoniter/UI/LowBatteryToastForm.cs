@@ -1,0 +1,185 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Linq;
+using System.Windows.Forms;
+using WirelessBatteryMoniter.Models;
+
+namespace WirelessBatteryMoniter.UI
+{
+    /// <summary>
+    /// A self-contained, always-on-top desktop reminder. This is intentionally used in
+    /// addition to (or instead of) shell balloons because Windows notification settings
+    /// and Focus Assist can suppress balloons, while a low battery warning must be seen.
+    /// </summary>
+    internal sealed class LowBatteryToastForm : Form
+    {
+        private static LowBatteryToastForm _current;
+
+        private readonly Timer _timer;
+        private readonly Action _openDetails;
+        private IList<DeviceBatteryInfo> _devices;
+        private int _threshold;
+
+        private LowBatteryToastForm(Action openDetails)
+        {
+            _openDetails = openDetails;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            StartPosition = FormStartPosition.Manual;
+            BackColor = Theme.Background;
+            DoubleBuffered = true;
+            Width = 390;
+            Height = 112;
+            Cursor = Cursors.Hand;
+            AutoScaleMode = AutoScaleMode.None;
+
+            _timer = new Timer { Interval = 9000 };
+            _timer.Tick += (s, e) => Close();
+        }
+
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams parameters = base.CreateParams;
+                parameters.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
+                parameters.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                return parameters;
+            }
+        }
+
+        public static void ShowToast(IList<DeviceBatteryInfo> devices, int threshold, Action openDetails)
+        {
+            if (devices == null || devices.Count == 0) return;
+
+            if (_current != null && !_current.IsDisposed)
+            {
+                _current.UpdateContent(devices, threshold);
+                _current.Reposition();
+                _current.Show();
+                _current.BringToFront();
+                _current._timer.Stop();
+                _current._timer.Start();
+                return;
+            }
+
+            LowBatteryToastForm form = new LowBatteryToastForm(openDetails);
+            form.UpdateContent(devices, threshold);
+            form.Reposition();
+            form.Show();
+            form.BringToFront();
+            _current = form;
+            form._timer.Start();
+        }
+
+        public static void CloseCurrent()
+        {
+            if (_current != null && !_current.IsDisposed)
+            {
+                _current.Close();
+            }
+            _current = null;
+        }
+
+        private void UpdateContent(IList<DeviceBatteryInfo> devices, int threshold)
+        {
+            _devices = devices;
+            _threshold = threshold;
+            Invalidate();
+        }
+
+        private void Reposition()
+        {
+            Screen screen = Screen.PrimaryScreen;
+            Rectangle area = screen.WorkingArea;
+            Location = new Point(area.Right - Width - 18, area.Bottom - Height - 18);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Theme.Prepare(e.Graphics);
+            Graphics graphics = e.Graphics;
+            RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
+            using (SolidBrush brush = new SolidBrush(Theme.Surface))
+            {
+                Theme.FillRounded(graphics, brush, rect, 15f);
+            }
+            using (Pen border = new Pen(Theme.Border))
+            {
+                Theme.DrawRounded(graphics, border, rect, 15f);
+            }
+
+            // Warning medallion.
+            RectangleF circle = new RectangleF(18f, 26f, 42f, 42f);
+            using (SolidBrush red = new SolidBrush(Theme.Red))
+            {
+                graphics.FillEllipse(red, circle);
+            }
+            Theme.DrawText(graphics, "!", Theme.Font(20f, FontStyle.Bold), Color.White,
+                new Rectangle((int)circle.X, (int)circle.Y - 1, (int)circle.Width, (int)circle.Height),
+                Theme.CenterMiddle);
+
+            int count = _devices == null ? 0 : _devices.Count;
+            string title = count <= 1 ? "低电量提醒" : string.Format("{0} 台设备电量偏低", count);
+            Theme.DrawText(graphics, title, Theme.Font(10.5f, FontStyle.Bold), Theme.Text,
+                new Rectangle(72, 13, Width - 112, 24), Theme.LeftMiddle);
+
+            string summary = _devices == null
+                ? string.Empty
+                : string.Join(" · ", _devices.Take(3).Select(d => string.Format("{0} {1}%", d.Name, d.Level.HasValue ? d.Level.Value : 0)));
+            if (count > 3) summary += string.Format(" 等 {0} 台", count);
+            Theme.DrawText(graphics, summary, Theme.Font(8.5f, FontStyle.Regular), Theme.TextMuted,
+                new Rectangle(72, 38, Width - 98, 20), Theme.LeftMiddle);
+
+            Theme.DrawText(graphics, string.Format("电量已低于 {0}%，请及时充电", _threshold),
+                Theme.Font(8.5f, FontStyle.Regular), Theme.Amber,
+                new Rectangle(72, 59, Width - 98, 19), Theme.LeftMiddle);
+
+            Theme.DrawText(graphics, "点击查看设备详情", Theme.Font(7.6f, FontStyle.Regular), Theme.TextFaint,
+                new Rectangle(72, 80, Width - 98, 16), Theme.LeftMiddle);
+
+            Theme.DrawText(graphics, "×", Theme.Font(12f, FontStyle.Regular), Theme.TextMuted,
+                new Rectangle(Width - 38, 8, 26, 24), Theme.CenterMiddle);
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            if (e.X >= Width - 44 && e.Y <= 38)
+            {
+                Close();
+                return;
+            }
+
+            Action action = _openDetails;
+            Close();
+            if (action != null) action();
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            _timer.Stop();
+            _timer.Dispose();
+            if (ReferenceEquals(_current, this)) _current = null;
+            base.OnFormClosed(e);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            using (GraphicsPath path = Theme.RoundedRect(new RectangleF(0, 0, Width, Height), 15f))
+            {
+                Region old = Region;
+                Region = new Region(path);
+                if (old != null) old.Dispose();
+            }
+        }
+    }
+}

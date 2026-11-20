@@ -1,0 +1,40 @@
+# WirelessBatteryMoniter 1.2.3
+
+Windows 10 1809+ / Windows 11 无线设备电量监控工具，需要 .NET Framework 4.8。
+
+## 启动与安装
+
+解压完整发布包，运行 `Start.cmd`，安装或升级到固定目录后启动。`Install.cmd` 只安装。日常从桌面快捷方式启动；实际运行文件始终是 `%LOCALAPPDATA%\Programs\WirelessBatteryMoniter\WirelessBatteryMoniterTray.exe`。不直接运行发布目录中的 EXE，避免产生不同路径的托盘记录。
+
+升级前请从主窗口或托盘菜单退出旧程序。关闭主窗口只会隐藏窗口；主窗口底部或托盘菜单中的“退出”才会结束进程。再次启动会唤起已有实例。
+
+## 使用
+
+- 托盘图标显示设备数量及最低电量，可能位于任务栏的 `^` 隐藏区。
+- 悬停第一行显示程序名和设备数量，之后按 `[连接方式] 类型: 名称 70%电量` 展示。纯文字提示框完整显示设备名称，宽度不足时换行。
+- 设置可配置刷新间隔、低电量阈值、提示音、通知、未连接设备显示和开机启动。
+- 点击主窗口“读取异常 · 点击查看详情”查看完整原因。
+- 扫描失败时保留可用结果，旧读数标记缓存；2.4G/HID 连续三轮完整扫描失败才确认断开。
+- 设置与日志优先存于 `%APPDATA%\WirelessBatteryMoniter`，不可写时回退至 LocalAppData 或程序旁 `UserData`。
+
+## 支持与限制
+
+支持 BLE 标准电池服务、Windows 经典蓝牙电量属性，以及部分罗技、ATK/VXE/CompX 2.4G 协议。本机实测两只 Logitech（PRO X 2、PRO X2 SUPERSTRIKE）与 XINMENG 3151:5045 接收器鼠标同时读取。其他型号需确认兼容性。缓存只保留本次运行；Windows 属性读数不保证是设备即时采样。35 秒是扫描取消请求时间，驱动清理可能更久。悬停采用纯文字提示框，不受原生托盘 127 字符限制。
+
+本程序未签名，Windows 可能提示未知发布者。安装不会关闭系统安全检查。
+
+## 诊断
+
+- `--selftest`：逻辑自检。
+- `--diagnose-scan`：单次真实设备扫描。
+- `--diagnose-tray`：离线托盘图像诊断，只导出预览，不注册图标；不验证 Explorer 实时注册。
+
+结果写入 `%TEMP%` 下的 `WirelessBatteryMoniter-selftest.txt` 或 `WirelessBatteryMoniter-diagnostics`。逻辑测试通过不代表所有硬件与交互场景均已验证。
+
+许可：MIT，见随包的 LICENSE。开发资料和历史对话不随发布包分发。
+
+## 升级与历史记录
+
+升级先暂存完整文件并逐一核对 SHA256，再替换固定安装目录；失败尝试回滚，旧目录保留在安装目录同级的 `.previous-WirelessBatteryMoniter-*` 中。不要从备份目录启动程序。不支持覆盖安装更低版本。安装相同文件可重复执行。
+
+开发测试、历史发布包不再注册临时图标；固定安装路径可以避免由路径变化引起的持续新增。Windows 管理历史托盘缓存，旧开关不会因升级自动删除。安装器不清空共享缓存，也不重启 Explorer，避免影响其他软件的图标偏好。

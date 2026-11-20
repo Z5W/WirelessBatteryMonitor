@@ -1,0 +1,21 @@
+# Generated builds, tests, local archives and release packages
+artifacts/
+dist/
+src/**/bin/
+src/**/obj/
+# Local toolchain and historical scratch files
+.tools/
+.tmp/
+.scratch/
+src/**/UserData/
+# IDE
+.vs/
+*.user
+*.suo
+# Runtime logs
+*.log
+
+# Local conversation archives and machine diagnostics
+docs/history/
+docs/validation/results/
+

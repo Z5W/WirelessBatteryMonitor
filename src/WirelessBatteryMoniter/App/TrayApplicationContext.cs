@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
@@ -231,7 +231,7 @@ namespace WirelessBatteryMoniter.App
         {
             if (_refreshing || _exiting) return;
             _refreshing = true;
-            if (manual && _mainForm != null) _mainForm.SetBusy(true);
+            if (_mainForm != null) _mainForm.SetBusy(true);
 
             try
             {
@@ -248,21 +248,35 @@ namespace WirelessBatteryMoniter.App
             }
             catch (OperationCanceledException)
             {
-                AppLog.Warn("Battery scan timed out.");
-                if (_mainForm != null)
+                if (!_exiting && !_shutdown.IsCancellationRequested)
                 {
-                    _mainForm.SetBusy(false);
+                    AppLog.Warn("Battery scan timed out.");
+                    ReportRefreshFailure("扫描已取消或超时，请重试。", manual);
                 }
             }
             catch (Exception ex)
             {
                 AppLog.Error("Unexpected refresh failure.", ex);
+                if (!_exiting && !_shutdown.IsCancellationRequested)
+                    ReportRefreshFailure("刷新失败：" + ex.Message, manual);
             }
             finally
             {
                 _refreshing = false;
                 if (!_exiting && _mainForm != null && !_mainForm.IsDisposed) _mainForm.SetBusy(false);
             }
+        }
+
+        private void ReportRefreshFailure(string error, bool manual)
+        {
+            _snapshot = (_snapshot ?? BatterySnapshot.Empty(false)).WithFailure(error);
+            // Preserve the failure even if a UI update itself was the original exception.
+            try
+            {
+                ApplySnapshot();
+                if (manual) ShowMainWindow();
+            }
+            catch (Exception ex) { AppLog.Error("Could not display refresh failure.", ex); }
         }
 
         private void ApplySnapshot()
@@ -424,6 +438,7 @@ namespace WirelessBatteryMoniter.App
 
             try
             {
+                _mainForm.SetBusy(_refreshing);
                 if (!_mainForm.Visible) _mainForm.Show();
                 if (_mainForm.WindowState == FormWindowState.Minimized)
                 {
@@ -462,21 +477,31 @@ namespace WirelessBatteryMoniter.App
         {
             AppSettings updated = _settings.Clone();
             updated.NotificationsEnabled = !_settings.NotificationsEnabled;
-            ApplySettings(updated);
+            ApplySettingsFromTray(updated);
         }
 
         private void ChangeThreshold(int threshold)
         {
             AppSettings updated = _settings.Clone();
             updated.LowBatteryThreshold = threshold;
-            ApplySettings(updated);
+            ApplySettingsFromTray(updated);
         }
 
         private void ToggleStartup()
         {
             AppSettings updated = _settings.Clone();
             updated.StartWithWindows = !StartupService.IsEnabled();
-            ApplySettings(updated);
+            ApplySettingsFromTray(updated);
+        }
+
+        private void ApplySettingsFromTray(AppSettings updated)
+        {
+            try { ApplySettings(updated); }
+            catch (Exception ex)
+            {
+                using (var form = new ErrorDetailsForm("保存设置失败：\r\n" + ex.Message))
+                    form.ShowDialog();
+            }
         }
 
         private void ApplySettings(AppSettings updated)
@@ -513,20 +538,16 @@ namespace WirelessBatteryMoniter.App
             if (thresholdChanged || !_settings.NotificationsEnabled) _notifier.Reset();
 
             _pollTimer.Interval = Math.Max(5, _settings.PollSeconds) * 1000;
-            UpdateTrayText();
-
-            if (_mainForm != null && !_mainForm.IsDisposed && _snapshot != null)
-            {
-                _mainForm.UpdateSnapshot(_snapshot, _settings);
-            }
-
-            string saveError;
-            if (!_settingsService.TrySave(_settings, out saveError))
-            {
-                AppLog.Warn("Settings could not be saved: " + saveError);
-            }
+            // Repaint from the existing snapshot immediately; do not wait for another scan.
+            ApplySnapshot();
+            if (_snapshot == null) UpdateTrayText();
 
             UpdateMenuState();
+            try { _settingsService.Save(_settings); }
+            catch (System.IO.IOException ex)
+            {
+                throw new System.IO.IOException("当前设置已临时生效，但未能保存。重启后可能恢复原设置，请重试。" + Environment.NewLine + ex.Message, ex);
+            }
         }
 
         private void DisposeIcons()
@@ -617,4 +638,5 @@ namespace WirelessBatteryMoniter.App
         }
     }
 }
+
 

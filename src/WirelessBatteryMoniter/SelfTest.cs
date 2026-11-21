@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -346,6 +346,26 @@ namespace WirelessBatteryMoniter
                 check("demo sorting lowest first", snapshot.Devices[0].Level == 18);
 
                 check("snapshot low threshold zero", snapshot.LowBatteryCount(10) == 0);
+                var pending = new DeviceBatteryInfo("pending", "缓存鼠标", "2.4G", "", 5, true, true, DateTime.Now);
+                var fresh = new DeviceBatteryInfo("fresh", "正常鼠标", "2.4G", "", 70, true, false, DateTime.Now);
+                var mixed = new BatterySnapshot(new[] { pending, fresh }, DateTime.Now, null, false);
+                check("cached device excluded from confirmed count", mixed.ConnectedCount == 1 && mixed.PendingCount == 1);
+                check("cached low reading excluded from current statistics", mixed.MinimumLevel == 70 && mixed.LowBatteryCount(20) == 0 && mixed.KnownBatteryCount == 1);
+                check("tray includes pending and preserved reading", TrayTextFormatter.BuildFull(mixed, false).Contains("1 台待确认") && TrayTextFormatter.BuildFull(mixed, false).Contains("5%电量（待确认，缓存）"));
+                var onlyCached = new BatterySnapshot(new[] { pending }, DateTime.Now, null, false);
+                check("all cached has no current battery", onlyCached.ConnectedCount == 0 && onlyCached.PendingCount == 1 && !onlyCached.MinimumLevel.HasValue);
+                check("cached tooltip fits native buffer", TrayTextFormatter.Build(onlyCached, false).Length <= TrayTextFormatter.MaximumLength);
+                var failed = mixed.WithFailure("测试刷新异常");
+                check("unexpected failure retains readings and timestamps", failed.Devices.Count == 2 && failed.Devices.All(d => d.IsStale) && failed.Devices.Single(d => d.Id == fresh.Id).LastSeen == fresh.LastSeen && failed.Devices.Single(d => d.Id == fresh.Id).Level == 70);
+                check("unexpected failure invalidates current statistics", failed.ConnectedCount == 0 && failed.PendingCount == 2 && !failed.MinimumLevel.HasValue);
+                check("unexpected failure visible in tray", TrayTextFormatter.BuildFull(failed, true).Contains("读取异常") && failed.Error == "测试刷新异常");
+                check("first scan failure remains visible", TrayTextFormatter.BuildFull(BatterySnapshot.Empty(false).WithFailure("首次失败"), false).Contains("读取异常"));
+                using (Bitmap normal = TrayIconRenderer.CreateBitmap(1, 30, 20))
+                using (Bitmap low = TrayIconRenderer.CreateBitmap(1, 30, 40))
+                using (Bitmap restored = TrayIconRenderer.CreateBitmap(1, 30, 20))
+                    check("threshold changes recolor same reading", normal.GetPixel(5,17) != low.GetPixel(5,17) && normal.GetPixel(5,17) == restored.GetPixel(5,17));
+
+
 
                 using (Bitmap bitmap = TrayIconRenderer.CreateBitmap(3, 18, 20))
                 {

@@ -1,13 +1,13 @@
 <!-- 最新发布/运行规则优先于下方历史功能说明。 -->
 # WirelessBatteryMoniter
 
-Windows 10/11 无线设备电量工具，当前版本 **1.2.3**（2026-11-20，页面设计方案首阶段落地、固定安装目录与无注册托盘诊断）。
+Windows 10/11 无线设备电量工具，当前版本 **1.2.3**（2026-11-20，浅色圆角卡片页面、固定安装目录与无注册托盘诊断）。
 
 一个托盘图标显示已连接设备数量及最低电量，悬停仅显示完整多行文字，不再弹出自绘卡片。主窗口关闭后继续后台运行，真正退出使用托盘菜单或主窗口“退出”按钮。蓝牙与部分 2.4G 接收器通过独立 Provider 读取；默认每 10 秒扫描一次，扫描未结束时不会重入。
 
-> **当前验收状态：** Framework 编译通过，94 项逻辑自检和 28 项页面回归通过。页面检查包含长名称、缓存状态、稳定排序、滚动、鼠标与键盘操作；真实截图检查覆盖本机 125% DPI，100%/150%/200% 为离屏布局模拟，未替代多显示器实测。详见 [页面验证记录](docs/validation/reports/validation-ui-redesign.md)。
+> **当前验收状态：** Framework 编译通过，94 项逻辑自检和 41 项页面回归通过。页面检查包含长名称、缓存状态、稳定排序、滚动、鼠标与键盘操作；真实截图检查覆盖本机 125% DPI，100%/150%/200% 为离屏布局模拟，未替代多显示器实测。详见 [页面验证记录](docs/validation/reports/validation-soft-cards.md)。
 
-![当前主界面（演示设备）](docs/images/screenshot-ui-redesign-main.png)
+![当前主界面（演示设备）](docs/images/screenshot-soft-cards-main.png)
 
 ## 1.2.2 鼠标兼容性修复
 
@@ -153,3 +153,4 @@ SDK 构建通过根目录 `Directory.Build.props` 将输出和中间文件定向
 - `src/WirelessBatteryMoniter/`：Models、Services、App、UI、Interop。
 - `packaging/`：安装及历史手动修复脚本。
 - MIT，见 [LICENSE](LICENSE)。
+

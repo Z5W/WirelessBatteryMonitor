@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -32,7 +32,12 @@ namespace WirelessBatteryMoniter.Models
 
         public int ConnectedCount
         {
-            get { return Devices.Count(d => d.IsConnected); }
+            get { return Devices.Count(d => d.IsConnected && !d.IsStale); }
+        }
+
+        public int PendingCount
+        {
+            get { return Devices.Count(d => d.IsConnected && d.IsStale); }
         }
 
         public int DisconnectedCount
@@ -42,7 +47,7 @@ namespace WirelessBatteryMoniter.Models
 
         public int KnownBatteryCount
         {
-            get { return Devices.Count(d => d.IsConnected && d.Level.HasValue); }
+            get { return Devices.Count(d => d.IsConnected && !d.IsStale && d.Level.HasValue); }
         }
 
         public int? MinimumLevel
@@ -52,7 +57,7 @@ namespace WirelessBatteryMoniter.Models
                 int? min = null;
                 foreach (DeviceBatteryInfo device in Devices)
                 {
-                    if (!device.IsConnected || !device.Level.HasValue) continue;
+                    if (!device.IsConnected || device.IsStale || !device.Level.HasValue) continue;
                     if (!min.HasValue || device.Level.Value < min.Value) min = device.Level.Value;
                 }
                 return min;
@@ -61,12 +66,19 @@ namespace WirelessBatteryMoniter.Models
 
         public int LowBatteryCount(int threshold)
         {
-            return Devices.Count(d => d.IsConnected && d.Level.HasValue && d.Level.Value <= threshold);
+            return Devices.Count(d => d.IsConnected && !d.IsStale && d.Level.HasValue && d.Level.Value <= threshold);
         }
 
         public bool HasDevices
         {
             get { return Devices.Count > 0; }
+        }
+
+        public BatterySnapshot WithFailure(string error)
+        {
+            return new BatterySnapshot(Devices.Select(d => new DeviceBatteryInfo(
+                d.Id, d.Name, d.Kind, d.Address, d.Level, d.IsConnected, true, d.LastSeen)),
+                DateTime.Now, error, IsDemo);
         }
 
         public static BatterySnapshot Empty(bool isDemo)

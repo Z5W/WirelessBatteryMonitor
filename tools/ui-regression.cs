@@ -1,4 +1,4 @@
-// Offline UI regression harness. Never constructs a tray icon or changes user settings.
+﻿// Offline UI regression harness. Never constructs a tray icon or changes user settings.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -38,6 +38,10 @@ class UiRegression
         var settings=new AppSettings { ShowDisconnected=true };
         using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
             form.Show();
+            Check("main maximize disabled",!form.MaximizeBox);
+            Check("embedded font family active",form.Font.FontFamily.Name=="WBM Mixed Sans");
+            Check("embedded regular and bold faces",form.Font.FontFamily.IsStyleAvailable(FontStyle.Regular)&&form.Font.FontFamily.IsStyleAvailable(FontStyle.Bold));
+            Check("initial scan is not an empty error",Field<Control>(form,"_empty").Visible && Field<Control>(form,"_empty").Text.Contains("正在查找"));
             var a=Reading("a","PRO X2 SUPERSTRIKE",70,true,false);
             var b=Reading("b","VXE NordicMouse 1K Dongle",15,true,false);
             var c=Reading("c","XINMENG 超长设备名称 — Wireless Gaming Mouse with a very long descriptive model name",null,true,false);
@@ -50,6 +54,7 @@ class UiRegression
             Check("refresh reuses rows and preserves order",ReferenceEquals(first,list.Controls[0]));
             var stale=Reading("a",a.Name,70,true,true);
             Update(form,settings,stale,Reading("b",b.Name,15,false,true),c);
+            Check("pending connection excluded from confirmed count",Field<Control>(form,"_count").Text.StartsWith("1 台") && Field<Control>(form,"_pending").Text=="1 台待确认");
             var texts=Descendants(form).OfType<Label>().Select(l=>l.Text).ToList();
             Check("stale reading retains success time",texts.Any(t=>t.Contains("上次读数 70%")&&t.Contains("10:12:34")));
             Check("uncertain connection explicit",texts.Any(t=>t.Contains("连接待确认")));
@@ -58,6 +63,13 @@ class UiRegression
             Call(form,"UpdateSnapshot",new BatterySnapshot(new[]{stale,c},DateTime.Now,"蓝牙读取超时\r\n已保留有效结果。",false),settings);
             Check("partial error banner visible",Field<Panel>(form,"_notice").Visible);
             Capture(form,"main-partial-error");
+            var failed=new BatterySnapshot(new[]{a},DateTime.Now,null,false).WithFailure("模拟意外刷新失败");
+            Call(form,"UpdateSnapshot",failed,settings);Call(form,"SetBusy",false);
+            Check("unexpected failure visible with retry",Field<Panel>(form,"_notice").Visible && Field<Control>(form,"_refreshButton").Enabled && Field<Control>(form,"_scan").Text.Contains("异常"));
+            Check("unexpected failure retains cached device row",list.Controls.Count==1 && Field<Control>(form,"_pending").Text=="1 台待确认");
+            Update(form,settings,a);
+            Check("successful retry clears failure",!Field<Panel>(form,"_notice").Visible && !Field<Control>(form,"_pending").Visible && Field<Control>(form,"_scan").Text.Contains("完成"));
+
             var many=Enumerable.Range(0,12).Select(i=>Reading(i.ToString(),"同名鼠标",20+i,true,false)).ToArray();
             Update(form,settings,many);
             Check("same names with distinct IDs preserved",list.Controls.Count==12);
@@ -75,12 +87,25 @@ class UiRegression
             Capture(form,"main-empty");
             form.ClientSize=new Size(700,800);Update(form,settings,a,b,c);Capture(form,"main-wide");
             Check("resize keeps rows inside viewport",list.Controls.Cast<Control>().All(r=>r.Width<=list.ClientSize.Width));
+            float actualScale=(float)app.GetType("WirelessBatteryMoniter.UI.Theme").GetField("DpiScale").GetValue(null);
+            form.ClientSize=new Size((int)(840*actualScale),(int)(720*actualScale));Update(form,settings,a,b,c);
+            Check("wide view uses two columns",list.Controls[0].Top==list.Controls[1].Top && list.Controls[1].Left>list.Controls[0].Left);
+            Capture(form,"main-two-columns");
+            form.ClientSize=new Size((int)(420*actualScale),(int)(560*actualScale));Update(form,settings,a,b,c);
+            Check("minimum view has no horizontal scroll",!list.HorizontalScroll.Visible);
+            Check("minimum view uses one column",list.Controls[0].Left==list.Controls[1].Left && list.Controls[1].Top>list.Controls[0].Top);
+            Check("name capped at two lines",Field<Label>(list.Controls[2],"_name").Height<=48*actualScale);
+            Capture(form,"main-minimum");
+            Update(form,settings,Reading("zero","零电量鼠标",0,true,false),Reading("full","满电鼠标",100,true,false));
+            Check("zero and full values remain exact",Field<Label>(list.Controls[0],"_level").Text=="0" && Field<Label>(list.Controls[1],"_level").Text=="100");
+            Capture(form,"main-zero-full");
             form.Close();Check("close hides instead of exiting",!form.IsDisposed&&!form.Visible);
         }
         using(var form=Create("SettingsForm",settings,new Action<AppSettings>(s=>{}),new Action(()=>{}))) {
             form.Show();Check("settings inputs remain inside scroller", new[]{"_pollSeconds","_threshold","_notifications","_sound","_startup","_startMinimized"}.All(n=> { var input=Field<Control>(form,n);return input.Left>=0 && input.Right<=input.Parent.ClientSize.Width; }));var notifications=Field<Control>(form,"_notifications");
             notifications.GetType().GetProperty("Checked").SetValue(notifications,false,null);
             Check("notifications off disables dependent controls",!Field<Control>(form,"_threshold").Enabled&&!Field<Control>(form,"_sound").Enabled&&!Field<Control>(form,"_testButton").Enabled);
+            Check("disabled toggle exposed as unavailable",(Field<Control>(form,"_sound").AccessibilityObject.State & AccessibleStates.Unavailable)!=0);
             Capture(form,"settings-disabled");
             notifications.GetType().GetProperty("Checked").SetValue(notifications,true,null);
             var number=Field<Control>(form,"_pollSeconds");int value=(int)number.GetType().GetProperty("Value").GetValue(number,null);
@@ -95,10 +120,44 @@ class UiRegression
             Capture(form,"settings-focus");
         }
         using(var form=Create("ErrorDetailsForm","蓝牙读取超时\r\n设备连接待确认。\r\n"+new string('x',1500))) {
-            form.Show();var text=Descendants(form).OfType<TextBox>().Single();
+            form.Show();Check("error maximize disabled",!form.MaximizeBox);var text=Descendants(form).OfType<TextBox>().Single();
             Check("error details selectable and read-only",text.ReadOnly&&text.Multiline);
             Check("error details includes copy action",Descendants(form).Any(c=>c.Text=="复制详情"));
             Capture(form,"error-details");
+        }
+        using(var form=Create("DeviceDetailsForm",Reading("details","完整设备名称 Wireless Mouse with a very long name",70,true,true))) {
+            form.Show();form.Opacity=1;Check("device maximize disabled",!form.MaximizeBox);
+            var text=Descendants(form).OfType<TextBox>().Single();
+            Check("device details retains full name and cached time",text.Text.Contains("完整设备名称 Wireless Mouse with a very long name")&&text.Text.Contains("10:12:34")&&text.Text.Contains("上次读数"));
+            Check("device details takes content focus",text.Focused);
+            Capture(form,"device-details");
+        }
+        using(var host=new Form()) {
+            var card=(Control)Activator.CreateInstance(app.GetType("WirelessBatteryMoniter.UI.DeviceCard"),true);
+            host.Controls.Add(card);card.Width=440;
+            Call(card,"UpdateDevice",Reading("card","Keyboard accessible mouse",70,true,false),20);
+            int invoked=0;card.GetType().GetEvent("OpenDetails").AddEventHandler(card,new EventHandler((s,e)=>invoked++));host.Show();
+            Call(card,"OnKeyDown",new KeyEventArgs(Keys.Enter));Check("device card opens with Enter",invoked==1);
+            card.AccessibilityObject.DoDefaultAction();Check("device card accessible default action",invoked==2);
+            Call(card,"OnMouseClick",new MouseEventArgs(MouseButtons.Right,1,10,10,0));Check("right click does not open device details",invoked==2);
+        }
+        // Real disk-write failure, followed by retry, without touching user settings.
+        string saveFolder=Path.Combine(output,"settings-save-failure");Directory.CreateDirectory(saveFolder);
+        string settingsPath=Path.Combine(saveFolder,"settings.json");
+        if(File.Exists(settingsPath))File.Delete(settingsPath);
+        Directory.CreateDirectory(settingsPath); // A directory cannot be replaced with a settings file.
+        var service=(WirelessBatteryMoniter.Services.SettingsService)Activator.CreateInstance(typeof(WirelessBatteryMoniter.Services.SettingsService),Hidden,null,new object[]{saveFolder},null);
+        using(var form=Create("SettingsForm",settings,new Action<AppSettings>(value=>service.Save(value)),new Action(()=>{}))) {
+            form.Show();var input=Field<Control>(form,"_pollSeconds");input.GetType().GetProperty("Value").SetValue(input,25,null);
+            bool errorShown=false;
+            using(var timer=new System.Windows.Forms.Timer {Interval=100}) {
+                timer.Tick+=(sender,e)=> { foreach(Form dialog in Application.OpenForms.Cast<Form>().ToArray()) if(dialog.GetType().Name=="ErrorDetailsForm") {errorShown=Descendants(dialog).OfType<TextBox>().Any(t=>t.Text.Contains("保存设置失败")&&t.Text.Contains("settings.json"));dialog.Close();} };
+                timer.Start();Call(form,"SaveAndClose");timer.Stop();
+            }
+            Check("disk save failure shown and settings stays open",errorShown && !form.IsDisposed && form.Visible && form.DialogResult!=DialogResult.OK);
+            Check("failed save retains edited value",(int)input.GetType().GetProperty("Value").GetValue(input,null)==25);
+            Directory.Delete(settingsPath);Call(form,"SaveAndClose");
+            Check("save retry closes and persists value",form.DialogResult==DialogResult.OK && service.Load().PollSeconds==25);
         }
         // Geometry stress tests only: actual desktop DPI remains unchanged.
         // Scale bounds and fonts together, then let row layout measure the new text.
@@ -128,3 +187,8 @@ class UiRegression
             }
         }    }
 }
+
+
+
+
+

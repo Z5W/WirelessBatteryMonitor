@@ -16,10 +16,12 @@ $references += @('UIAutomationClient.dll', 'UIAutomationTypes.dll', 'WindowsBase
 $references += @(Get-ChildItem $contracts -Filter '*.winmd' | ForEach-Object { '/reference:' + $_.FullName })
 $sourceRoot = Join-Path $root 'src\WirelessBatteryMoniter'
 $sources = @(Get-ChildItem $sourceRoot -Filter '*.cs' -Recurse | Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName })
-& (Join-Path $frameworkDir 'csc.exe') /nologo /target:winexe /platform:anycpu /optimize+ "/out:$output\WirelessBatteryMoniter.exe" "/win32icon:$sourceRoot\Assets\app.ico" "/win32manifest:$sourceRoot\app.manifest" $references $sources
+$fontResources = @(Get-ChildItem (Join-Path $sourceRoot 'Assets\Fonts') -File | Where-Object { $_.Extension -in '.ttf','.txt' } | ForEach-Object { '/resource:' + $_.FullName + ',WirelessBatteryMoniter.Fonts.' + $_.Name })
+& (Join-Path $frameworkDir 'csc.exe') /nologo /target:winexe /platform:anycpu /optimize+ "/out:$output\WirelessBatteryMoniter.exe" "/win32icon:$sourceRoot\Assets\app.ico" "/win32manifest:$sourceRoot\app.manifest" $references $fontResources $sources
 if ($LASTEXITCODE -ne 0) { throw 'Framework compilation failed.' }
 @'
 <?xml version="1.0" encoding="utf-8"?>
 <configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8" /></startup></configuration>
 '@ | Set-Content (Join-Path $output 'WirelessBatteryMoniter.exe.config') -Encoding UTF8
+
 

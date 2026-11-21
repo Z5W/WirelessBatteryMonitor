@@ -103,7 +103,7 @@ namespace WirelessBatteryMoniter.UI
                 }
 
                 string text = deviceCount > 9 ? "9+" : deviceCount.ToString();
-                using (Font font = new Font("Segoe UI", deviceCount > 9 ? 6.8f : 8.6f, FontStyle.Bold, GraphicsUnit.Pixel))
+                using (Font font = new Font(UiFonts.Family, deviceCount > 9 ? 6.8f : 8.6f, FontStyle.Bold, GraphicsUnit.Pixel))
                 using (SolidBrush textBrush = new SolidBrush(deviceCount > 0 ? Theme.BadgeText : Theme.TextMuted))
                 using (StringFormat format = new StringFormat
                 {
@@ -119,3 +119,4 @@ namespace WirelessBatteryMoniter.UI
         }
     }
 }
+

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Collections.Generic;
 using WirelessBatteryMoniter.Models;
@@ -35,14 +35,22 @@ namespace WirelessBatteryMoniter.UI
         private static string Line(DeviceBatteryInfo device, int nameLimit)
         {
             string kind = device.Kind == "2.4G" ? "2.4G" : device.Kind == "蓝牙 LE" ? "BLE" : device.Kind.Contains("蓝牙") ? "蓝牙" : Clean(device.Kind);
-            string state = !device.IsConnected ? "（未连接）" : device.IsStale ? "（缓存）" : "";
+            string state = !device.IsConnected ? "（未连接）" : device.IsStale ? "（待确认，缓存）" : "";
             return "[" + Shorten(kind, 8) + "] " + DeviceType(device.Name) + ": "
                 + Shorten(Clean(device.Name), nameLimit) + " " + device.LevelText + "电量" + state;
         }
 
-        internal static string BuildFull(BatterySnapshot snapshot, bool showDisconnected)
+        private static string Header(BatterySnapshot snapshot)
         {
             string header = "WirelessBatteryMoniter · " + (snapshot == null ? 0 : snapshot.ConnectedCount) + " 台";
+            if (snapshot != null && snapshot.PendingCount > 0) header += " · " + snapshot.PendingCount + " 台待确认";
+            if (snapshot != null && !string.IsNullOrEmpty(snapshot.Error)) header += " · 读取异常，点击查看";
+            return header;
+        }
+
+        internal static string BuildFull(BatterySnapshot snapshot, bool showDisconnected)
+        {
+            string header = Header(snapshot);
             if (snapshot == null) return header + "\n正在扫描…";
             var devices = snapshot.Devices.Where(d => d.IsConnected || showDisconnected).ToList();
             return header + "\n" + (devices.Count == 0 ? "未发现设备" : string.Join("\n", devices.Select(d => Line(d, int.MaxValue))));
@@ -50,7 +58,7 @@ namespace WirelessBatteryMoniter.UI
 
         internal static string Build(BatterySnapshot snapshot, bool showDisconnected)
         {
-            string header = "WirelessBatteryMoniter · " + (snapshot == null ? 0 : snapshot.ConnectedCount) + " 台";
+            string header = Header(snapshot);
             if (snapshot == null) return header + "\n正在扫描…";
             var devices = snapshot.Devices.Where(d => d.IsConnected || showDisconnected).ToList();
             if (devices.Count == 0) return header + "\n未发现设备";

@@ -8,6 +8,7 @@ namespace WirelessBatteryMoniter.UI
     {
         public ErrorDetailsForm(string details)
         {
+            MaximizeBox=false;
             SuspendLayout();
             Text="读取详情";AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             ClientSize=new Size(560,420);MinimumSize=new Size(440,300);StartPosition=FormStartPosition.CenterParent;
@@ -19,12 +20,16 @@ namespace WirelessBatteryMoniter.UI
             var copy=MainForm.Button(footer,"复制详情",24,16,120,40);
             copy.Click+=(s,e)=> { try { Clipboard.SetText(details ?? "没有错误详情。");copy.Text="已复制"; } catch(System.Runtime.InteropServices.ExternalException) { copy.Text="请重试复制"; } };
             var close=MainForm.Button(footer,"关闭",416,16,120,40);close.Anchor=AnchorStyles.Top|AnchorStyles.Right;close.Click+=(s,e)=>Close();
-            var body=new Panel { Dock=DockStyle.Fill,Padding=new Padding(24,8,24,16) };
+            var body=new RoundedPanel { Dock=DockStyle.Fill,Padding=new Padding(24,8,24,16) };
             var text=new TextBox { Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,Text=details ?? "没有错误详情。",BackColor=Theme.Surface,ForeColor=Theme.Text,BorderStyle=BorderStyle.None,AccessibleName="错误详情",Font=Theme.Font(10.5f) };
             body.Controls.Add(text);Controls.Add(body);Controls.Add(header);Controls.Add(footer);
             KeyPreview=true;KeyDown+=(s,e)=> { if(e.KeyCode==Keys.Escape) Close(); };
             AutoScaleDimensions = new SizeF(96,96); ResumeLayout(true);
-            Shown+=(s,e)=>NativeMethods.ApplyDarkWindow(Handle);
+            Shown+=(s,e)=> { text.Focus();text.Select(0,0);UiMotion.FadeIn(this); };
         }
     }
 }
+
+
+
+

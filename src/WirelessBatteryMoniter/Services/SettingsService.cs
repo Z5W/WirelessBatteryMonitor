@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.Serialization.Json;
 using System.Text;
@@ -92,6 +92,13 @@ namespace WirelessBatteryMoniter.Services
                 AppLog.Error("Failed to save settings.", ex);
                 return false;
             }
+        }
+
+        public void Save(AppSettings settings)
+        {
+            string error;
+            if (!TrySave(settings, out error))
+                throw new IOException("无法写入配置文件：" + SettingsPath + Environment.NewLine + error);
         }
 
         public void OpenFolder()

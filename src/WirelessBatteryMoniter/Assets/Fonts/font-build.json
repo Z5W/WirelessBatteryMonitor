@@ -1,0 +1,16 @@
+{
+  "sources": {
+    "SourceHanSansSC-VF.ttf": "68f866374d8ff04d2103c5b2907f1cab2dbec91ac0fb6ad0b801c6db0c1faa80",
+    "NotoSansSC-VF.ttf": "d68bafcb48a2707749396aa12bbbd833cb70401f3a9a689fd2902c7e0d295964"
+  },
+  "faces": {
+    "Regular": {
+      "latin_glyphs_from_noto": 336,
+      "sha256": "fa5c58d7e207c6f53b2ba5e88faedf9b74f0a1a528418a71d6ef5a1592707a15"
+    },
+    "Bold": {
+      "latin_glyphs_from_noto": 336,
+      "sha256": "3a5ba4cc853abdd17044b2e52b2eea9b4ef8d83d05d65ca220546e739cc7b873"
+    }
+  }
+}

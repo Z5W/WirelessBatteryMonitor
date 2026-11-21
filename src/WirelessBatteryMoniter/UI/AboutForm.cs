@@ -100,7 +100,7 @@ namespace WirelessBatteryMoniter.UI
             layout.Controls.Add(actions);
 
             AutoScaleDimensions = new SizeF(96,96); ResumeLayout(true);
-            Shown += (s, e) => NativeMethods.ApplyDarkWindow(Handle);
+            Shown += (s, e) => Invalidate();
         }
 
         private static void AddParagraph(TableLayoutPanel layout, string text, Color color)
@@ -153,3 +153,4 @@ namespace WirelessBatteryMoniter.UI
         }
     }
 }
+

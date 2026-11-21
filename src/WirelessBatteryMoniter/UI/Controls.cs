@@ -23,9 +23,11 @@ namespace WirelessBatteryMoniter.UI
     {
         private bool _hover;
         private bool _pressed;
+        private readonly UiMotion _motion;
 
         public FlatButton()
         {
+            _motion = new UiMotion(() => Invalidate());
             SetStyle(
                 ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
@@ -65,7 +67,7 @@ namespace WirelessBatteryMoniter.UI
             }
             else if (Accent)
             {
-                fill = _pressed ? Color.FromArgb(45, 166, 224) : (_hover ? Color.FromArgb(110, 207, 255) : Theme.Accent);
+                fill = _pressed ? Color.FromArgb(17, 78, 174) : UiMotion.Blend(Theme.Accent, Color.FromArgb(38,105,209),_motion.Value);
                 border = fill;
                 text = Theme.BadgeText;
             }
@@ -77,7 +79,7 @@ namespace WirelessBatteryMoniter.UI
             }
             else
             {
-                fill = _pressed ? Theme.SurfaceRaised : (_hover ? Theme.SurfaceHover : Theme.Surface);
+                fill = _pressed ? Theme.SurfaceRaised : UiMotion.Blend(Theme.SurfaceRaised,Theme.AccentDark,_motion.Value);
                 border = _hover ? Theme.Border : Theme.BorderSoft;
                 text = Theme.Text;
             }
@@ -86,31 +88,31 @@ namespace WirelessBatteryMoniter.UI
             {
                 using (SolidBrush brush = new SolidBrush(fill))
                 {
-                    Theme.FillRounded(e.Graphics, brush, rect, 9f);
+                    Theme.FillRounded(e.Graphics, brush, rect, Height / 2f);
                 }
             }
             if (border.A > 0)
             {
                 using (Pen pen = new Pen(border))
                 {
-                    Theme.DrawRounded(e.Graphics, pen, rect, 9f);
+                    Theme.DrawRounded(e.Graphics, pen, rect, Height / 2f);
                 }
             }
 
-            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Theme.Accent, BackColor);
+            if (Focused && ShowFocusCues) Theme.DrawFocus(e.Graphics, ClientRectangle);
             Theme.DrawText(e.Graphics, Text, Font, text, ClientRectangle, Theme.CenterMiddle);
         }
 
         protected override void OnMouseEnter(EventArgs e)
         {
-            _hover = true;
+            _hover = true; _motion.Set(1);
             Invalidate();
             base.OnMouseEnter(e);
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
-            _hover = false;
+            _hover = false; _motion.Set(0);
             _pressed = false;
             Invalidate();
             base.OnMouseLeave(e);
@@ -154,6 +156,7 @@ namespace WirelessBatteryMoniter.UI
             base.OnEnabledChanged(e);
         }
 
+        protected override void Dispose(bool disposing) { if(disposing) _motion.Dispose(); base.Dispose(disposing); }
         protected override void OnTextChanged(EventArgs e)
         {
             AccessibleName = Text;
@@ -201,7 +204,8 @@ namespace WirelessBatteryMoniter.UI
         {
             Theme.Prepare(e.Graphics);
 
-            RectangleF track = new RectangleF(1f, 3f, Width - 2f, Height - 6f);
+            float scale=Theme.DpiScale;
+            RectangleF track = new RectangleF(1f, (Height-28*scale)/2, Width-2f, 28*scale);
             Color trackColor = _checked ? Theme.Accent : Theme.SurfaceRaised;
             using (SolidBrush brush = new SolidBrush(Enabled ? trackColor : Theme.WithAlpha(trackColor, 90)))
             {
@@ -216,22 +220,25 @@ namespace WirelessBatteryMoniter.UI
                 }
             }
 
-            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Theme.Accent, BackColor);
-            float knobSize = Height - 10f * Theme.DpiScale;
-            float knobX = _checked ? Width - knobSize - 5f : 5f;
-            using (SolidBrush knob = new SolidBrush(Enabled ? Color.White : Color.FromArgb(190, 200, 210)))
+            if (Focused && ShowFocusCues) Theme.DrawFocus(e.Graphics, ClientRectangle);
+            float knobSize = 20f * Theme.DpiScale;
+            float knobX = _checked ? Width - knobSize - 4f*scale : 4f*scale;
+            using (SolidBrush knob = new SolidBrush(Enabled ? (_checked ? Color.White : Theme.TextMuted) : Color.FromArgb(190, 200, 210)))
             {
-                e.Graphics.FillEllipse(knob, knobX, 5f, knobSize, knobSize);
+                e.Graphics.FillEllipse(knob, knobX, (Height-knobSize)/2, knobSize, knobSize);
             }
         }
 
-        protected override void OnClick(EventArgs e)
-        {
-            if (!Enabled) return;
-            Checked = !Checked;
-            base.OnClick(e);
+        protected override void OnMouseDown(MouseEventArgs e) {if(e.Button==MouseButtons.Left)Focus();base.OnMouseDown(e);}
+        protected override void OnMouseClick(MouseEventArgs e) {if(Enabled&&e.Button==MouseButtons.Left)Checked=!Checked;base.OnMouseClick(e);}
+        protected override AccessibleObject CreateAccessibilityInstance() {return new ToggleAccessibility(this);}
+        private sealed class ToggleAccessibility : ControlAccessibleObject {
+            private readonly ToggleSwitch _owner;
+            public ToggleAccessibility(ToggleSwitch owner):base(owner){_owner=owner;}
+            public override AccessibleStates State {get{return base.State|(_owner.Checked ? AccessibleStates.Checked : AccessibleStates.None);}}
+            public override string DefaultAction {get{return "切换";}}
+            public override void DoDefaultAction(){if(_owner.Enabled)_owner.Checked=!_owner.Checked;}
         }
-
         protected override void OnKeyDown(KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter)
@@ -341,11 +348,11 @@ namespace WirelessBatteryMoniter.UI
             RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
             using (SolidBrush brush = new SolidBrush(Theme.SurfaceRaised))
             {
-                Theme.FillRounded(e.Graphics, brush, rect, 9f);
+                Theme.FillRounded(e.Graphics, brush, rect, Height / 2f);
             }
             using (Pen border = new Pen(Theme.Border))
             {
-                Theme.DrawRounded(e.Graphics, border, rect, 9f);
+                Theme.DrawRounded(e.Graphics, border, rect, Height / 2f);
             }
 
             float buttonWidth = 34f * Theme.DpiScale;
@@ -355,7 +362,7 @@ namespace WirelessBatteryMoniter.UI
                 e.Graphics.DrawLine(separator, Width - buttonWidth, 7f, Width - buttonWidth, Height - 7f);
             }
 
-            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Theme.Accent, BackColor);
+            if (Focused && ShowFocusCues) Theme.DrawFocus(e.Graphics, ClientRectangle);
             Color minusColor = Enabled ? (_minusHover ? Theme.Accent : Theme.TextMuted) : Theme.TextFaint;
             Color plusColor = Enabled ? (_plusHover ? Theme.Accent : Theme.TextMuted) : Theme.TextFaint;
             Theme.DrawText(e.Graphics, "\u2212", Theme.Font(12f, FontStyle.Regular), minusColor,
@@ -438,3 +445,8 @@ namespace WirelessBatteryMoniter.UI
         }
     }
 }
+
+
+
+
+

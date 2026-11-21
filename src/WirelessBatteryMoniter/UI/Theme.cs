@@ -10,22 +10,22 @@ namespace WirelessBatteryMoniter.UI
 {
     internal static class Theme
     {
-        public static readonly Color Background = Color.FromArgb(22, 27, 34);
-        public static readonly Color BackgroundAlt = Color.FromArgb(17, 21, 29);
-        public static readonly Color Surface = Color.FromArgb(34, 42, 53);
-        public static readonly Color SurfaceHover = Color.FromArgb(31, 37, 49);
-        public static readonly Color SurfaceRaised = Color.FromArgb(36, 43, 57);
-        public static readonly Color Border = Color.FromArgb(43, 52, 67);
-        public static readonly Color BorderSoft = Color.FromArgb(33, 40, 53);
-        public static readonly Color Text = Color.FromArgb(237, 242, 247);
-        public static readonly Color TextMuted = Color.FromArgb(170, 183, 199);
-        public static readonly Color TextFaint = Color.FromArgb(170, 183, 199);
-        public static readonly Color Accent = Color.FromArgb(104, 184, 247);
-        public static readonly Color AccentDark = Color.FromArgb(16, 57, 79);
-        public static readonly Color Green = Color.FromArgb(104, 184, 247);
-        public static readonly Color Amber = Color.FromArgb(240, 180, 90);
-        public static readonly Color Red = Color.FromArgb(240, 180, 90);
-        public static readonly Color BadgeText = Color.FromArgb(9, 24, 34);
+        public static readonly Color Background = Color.FromArgb(242, 243, 247);
+        public static readonly Color BackgroundAlt = Color.FromArgb(242, 243, 247);
+        public static readonly Color Surface = Color.FromArgb(255, 255, 255);
+        public static readonly Color SurfaceHover = Color.FromArgb(245, 248, 253);
+        public static readonly Color SurfaceRaised = Color.FromArgb(233, 237, 245);
+        public static readonly Color Border = Color.FromArgb(180, 189, 204);
+        public static readonly Color BorderSoft = Color.FromArgb(233, 237, 245);
+        public static readonly Color Text = Color.FromArgb(32, 38, 48);
+        public static readonly Color TextMuted = Color.FromArgb(88, 98, 117);
+        public static readonly Color TextFaint = Color.FromArgb(88, 98, 117);
+        public static readonly Color Accent = Color.FromArgb(20, 92, 205);
+        public static readonly Color AccentDark = Color.FromArgb(228, 237, 255);
+        public static readonly Color Green = Color.FromArgb(20, 92, 205);
+        public static readonly Color Amber = Color.FromArgb(138, 72, 0);
+        public static readonly Color Red = Color.FromArgb(179, 38, 30);
+        public static readonly Color BadgeText = Color.FromArgb(255, 255, 255);
 
         // The manifest opts into system DPI awareness; GDI reports the native system DPI.
         // Mutable only for the offline layout harness; production uses the system value.
@@ -36,7 +36,7 @@ namespace WirelessBatteryMoniter.UI
 
         public static Font Font(float size, FontStyle style = FontStyle.Regular)
         {
-            return GetFont("Segoe UI", size, style);
+            return GetFont("WBM Mixed Sans", size, style);
         }
 
         public static Font IconFont(float size)
@@ -51,7 +51,7 @@ namespace WirelessBatteryMoniter.UI
             {
                 Font font;
                 if (Fonts.TryGetValue(key, out font)) return font;
-                font = new Font(family, size, style, GraphicsUnit.Point);
+                font = family == "WBM Mixed Sans" ? new Font(UiFonts.Family,size,style,GraphicsUnit.Point) : new Font(family, size, style, GraphicsUnit.Point);
                 Fonts[key] = font;
                 return font;
             }
@@ -119,7 +119,7 @@ namespace WirelessBatteryMoniter.UI
             }
 
             if (!level.HasValue || level.Value <= 0) return;
-            float width = Math.Max(rect.Height, rect.Width * Math.Max(1, Math.Min(100, level.Value)) / 100f);
+            float width = rect.Width * Math.Max(0, Math.Min(100, level.Value)) / 100f;
             RectangleF fillRect = new RectangleF(rect.X, rect.Y, Math.Min(rect.Width, width), rect.Height);
             using (SolidBrush fillBrush = new SolidBrush(fill))
             {
@@ -147,6 +147,10 @@ namespace WirelessBatteryMoniter.UI
         public static TextFormatFlags CenterMiddle = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
             | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
 
+        public static void DrawFocus(Graphics graphics,Rectangle bounds) {
+            float inset=2*DpiScale;
+            using(var pen=new Pen(Accent,2*DpiScale)) DrawRounded(graphics,pen,new RectangleF(inset,inset,bounds.Width-inset*2,bounds.Height-inset*2),(bounds.Height-inset*2)/2);
+        }
         public static void Prepare(Graphics graphics)
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -156,3 +160,6 @@ namespace WirelessBatteryMoniter.UI
         }
     }
 }
+
+
+

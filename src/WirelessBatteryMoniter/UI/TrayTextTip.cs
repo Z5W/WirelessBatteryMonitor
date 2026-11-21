@@ -25,7 +25,7 @@ namespace WirelessBatteryMoniter.UI
             BackColor = SystemColors.Info;
             Padding = new Padding(8);
             _label = new Label { AutoSize = true, ForeColor = SystemColors.InfoText,
-                BackColor = SystemColors.Info, Font = SystemFonts.MessageBoxFont, Location = new Point(8, 8), UseMnemonic = false };
+                BackColor = SystemColors.Info, Font = Theme.Font(9f), Location = new Point(8, 8), UseMnemonic = false };
             Controls.Add(_label);
             _icon.MouseMove += OnTrayMove;
             _icon.MouseDown += OnTrayDown;
@@ -95,3 +95,4 @@ namespace WirelessBatteryMoniter.UI
         }
     }
 }
+

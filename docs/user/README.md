@@ -1,4 +1,4 @@
-# WirelessBatteryMoniter 1.2.3
+# WirelessBatteryMoniter 1.3.0
 
 Windows 10 1809+ / Windows 11 无线设备电量监控工具，需要 .NET Framework 4.8。
 
@@ -41,4 +41,5 @@ Windows 10 1809+ / Windows 11 无线设备电量监控工具，需要 .NET Frame
 升级先暂存完整文件并逐一核对 SHA256，再替换固定安装目录；失败尝试回滚，旧目录保留在安装目录同级的 `.previous-WirelessBatteryMoniter-*` 中。不要从备份目录启动程序。不支持覆盖安装更低版本。安装相同文件可重复执行。
 
 开发测试、历史发布包不再注册临时图标；固定安装路径可以避免由路径变化引起的持续新增。Windows 管理历史托盘缓存，旧开关不会因升级自动删除。安装器不清空共享缓存，也不重启 Explorer，避免影响其他软件的图标偏好。
+
 

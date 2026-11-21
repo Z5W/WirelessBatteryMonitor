@@ -35,3 +35,5 @@
 
 - [固定安装目录与诊断身份重构（1.2.3）](reports/validation-fixed-install.md)
 
+
+- [v1.3.0 发布验证](reports/validation-v1.3.0.md)

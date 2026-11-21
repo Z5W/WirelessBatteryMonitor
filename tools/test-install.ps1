@@ -1,7 +1,8 @@
 #Requires -Version 5.1
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
-$package=Join-Path $root 'dist\v1.2.3'
+[xml]$project=Get-Content (Join-Path $root 'src\WirelessBatteryMoniter\WirelessBatteryMoniter.csproj')
+$package=Join-Path $root ('dist\v' + $project.Project.PropertyGroup.Version)
 $test=Join-Path $root ('artifacts\tests\install-' + [guid]::NewGuid().ToString('N'))
 $source=Join-Path $test 'package'
 New-Item -ItemType Directory -Force $source | Out-Null
@@ -38,4 +39,5 @@ try {
         Write-Output 'PASS downgrade rejected'
     }
 } finally { $env:LOCALAPPDATA=$savedLocal }
+
 

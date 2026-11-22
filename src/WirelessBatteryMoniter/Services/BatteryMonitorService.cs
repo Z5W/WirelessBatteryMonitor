@@ -13,20 +13,22 @@ namespace WirelessBatteryMoniter.Services
         private readonly BluetoothBatteryProvider _bluetoothProvider;
         private readonly HidBatteryProvider _hidProvider;
         private readonly DemoBatteryProvider _demoProvider;
+        private readonly BatteryChannel _bluetoothChannel, _hidChannel;
+        public int PollSeconds { get; set; }
 
         public BatteryMonitorService()
         {
+            PollSeconds=10;
             _bluetoothProvider = new BluetoothBatteryProvider();
             _hidProvider = new HidBatteryProvider();
             _demoProvider = new DemoBatteryProvider();
+            _bluetoothChannel = new BatteryChannel(_bluetoothProvider.GetDevicesAsync, ()=>_bluetoothProvider.LastWarning, _bluetoothProvider.Dispose);
+            _hidChannel = new BatteryChannel(_hidProvider.GetDevicesAsync, ()=>_hidProvider.LastWarning, _hidProvider.Dispose);
         }
-
-        private IReadOnlyList<DeviceBatteryInfo> _bluetoothCache = new List<DeviceBatteryInfo>();
-        private IReadOnlyList<DeviceBatteryInfo> _hidCache = new List<DeviceBatteryInfo>();
 
         public bool DemoMode { get; set; }
 
-        public async Task<BatterySnapshot> ScanAsync(CancellationToken cancellationToken)
+        public async Task<BatterySnapshot> ScanAsync(CancellationToken cancellationToken, bool force = false)
         {
             DateTime started = DateTime.Now;
             if (DemoMode)
@@ -37,19 +39,13 @@ namespace WirelessBatteryMoniter.Services
                 return BuildSnapshot(demoDevices, started, null, true);
             }
 
-            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                timeout.CancelAfter(TimeSpan.FromSeconds(35));
-                var bluetoothTask = _bluetoothProvider.GetDevicesAsync(timeout.Token);
-                var hidTask = _hidProvider.GetDevicesAsync(timeout.Token);
-                BatterySnapshot snapshot = await CollectResultsAsync(bluetoothTask, hidTask,
-                    _bluetoothCache, _hidCache, cancellationToken).ConfigureAwait(false);
-                if (bluetoothTask.Status == TaskStatus.RanToCompletion) _bluetoothCache = bluetoothTask.Result;
-                if (hidTask.Status == TaskStatus.RanToCompletion) _hidCache = hidTask.Result;
-                string warning = bluetoothTask.Status == TaskStatus.RanToCompletion ? _bluetoothProvider.LastWarning : null;
-                string error = string.Join("；", new[] { snapshot.Error, warning }.Where(e => !string.IsNullOrEmpty(e)));
-                return BuildSnapshot(snapshot.Devices, started, string.IsNullOrEmpty(error) ? null : error, false);
-            }
+            int interval=Math.Max(5,PollSeconds);
+            var channels=await Task.WhenAll(_bluetoothChannel.PollAsync(interval,force,cancellationToken),
+                _hidChannel.PollAsync(interval,force,cancellationToken)).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            string error=string.Join("；",channels.Select((s,i)=>string.IsNullOrEmpty(s.Error) ? null : (i==0 ? "蓝牙：" : "2.4G：")+s.Error).Where(e=>e!=null));
+            return BuildSnapshot(MergeDuplicateDevices(channels.SelectMany(s=>s.Devices).ToList()),started,
+                string.IsNullOrEmpty(error) ? null : error,false);
         }
 
         // Wait for cancellation cleanup before allowing another scan or disposing providers.
@@ -85,8 +81,7 @@ namespace WirelessBatteryMoniter.Services
             errors.Add(channel + "：" + error + "（旧读数已标记缓存）");
             AppLog.Warn(channel + " scan incomplete: " + error);
             foreach (var old in cache)
-                devices.Add(new DeviceBatteryInfo(old.Id, old.Name, old.Kind, old.Address,
-                    old.Level, old.IsConnected, true, old.LastSeen));
+                devices.Add(old.AsUnconfirmedCache());
         }
 
         internal static List<DeviceBatteryInfo> MergeDuplicateDevices(List<DeviceBatteryInfo> devices)
@@ -138,8 +133,8 @@ namespace WirelessBatteryMoniter.Services
 
         public void Dispose()
         {
-            _bluetoothProvider.Dispose();
-            _hidProvider.Dispose();
+            _bluetoothChannel.Dispose();
+            _hidChannel.Dispose();
             _demoProvider.Dispose();
         }
     }

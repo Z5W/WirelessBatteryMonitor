@@ -1,4 +1,4 @@
-﻿// Offline UI regression harness. Never constructs a tray icon or changes user settings.
+// Offline UI regression harness. Never constructs a tray icon or changes user settings.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -67,6 +67,13 @@ class UiRegression
             Call(form,"UpdateSnapshot",failed,settings);Call(form,"SetBusy",false);
             Check("unexpected failure visible with retry",Field<Panel>(form,"_notice").Visible && Field<Control>(form,"_refreshButton").Enabled && Field<Control>(form,"_scan").Text.Contains("异常"));
             Check("unexpected failure retains cached device row",list.Controls.Count==1 && Field<Control>(form,"_pending").Text=="1 台待确认");
+            settings.ShowDisconnected=false;
+            var unknown=a.AsUnconfirmedCache();
+            Update(form,settings,unknown,Reading("offline","Offline",15,false,true));
+            Check("unknown row visible while disconnected hidden",list.Controls.Count==1 && Descendants(form).Any(l=>l.Text.Contains("连接状态未知")));
+            Check("unknown row excluded from connected count",Field<Control>(form,"_count").Text.StartsWith("0 台") && Field<Control>(form,"_pending").Text=="1 台待确认");
+            Capture(form,"main-unknown-link");
+            settings.ShowDisconnected=true;
             Update(form,settings,a);
             Check("successful retry clears failure",!Field<Panel>(form,"_notice").Visible && !Field<Control>(form,"_pending").Visible && Field<Control>(form,"_scan").Text.Contains("完成"));
 
@@ -131,6 +138,71 @@ class UiRegression
             Check("device details retains full name and cached time",text.Text.Contains("完整设备名称 Wireless Mouse with a very long name")&&text.Text.Contains("10:12:34")&&text.Text.Contains("上次读数"));
             Check("device details takes content focus",text.Focused);
             Capture(form,"device-details");
+        }
+        var deviceSettings=new AppSettings();AppSettings savedDevices=null;bool failDeviceSave=true;
+        deviceSettings.Devices.Add(new DevicePreference {Id="second",Hidden=true,Alias="隐藏鼠标",LowBatteryThreshold=10});
+        var deviceList=new BatterySnapshot(new[]{Reading("first","原始鼠标",25,true,false),Reading("second","同名鼠标",20,true,false)},DateTime.Now,null,false);
+        using(var form=Create("DevicePreferencesForm",deviceSettings,deviceList,new Action<AppSettings>(value=>{if(failDeviceSave)throw new IOException("模拟保存失败");savedDevices=value.Clone();}))) {
+            form.Show();form.Opacity=1;
+            var selector=Field<ComboBox>(form,"_devices");
+            int firstIndex=Enumerable.Range(0,selector.Items.Count).Single(i=>selector.Items[i].ToString().Contains("原始鼠标"));
+            int secondIndex=1-firstIndex;selector.SelectedIndex=firstIndex;
+            Field<TextBox>(form,"_alias").Text="办公鼠标";Field<CheckBox>(form,"_global").Checked=false;Field<NumericUpDown>(form,"_threshold").Value=35;
+            selector.SelectedIndex=secondIndex;Field<CheckBox>(form,"_hidden").Checked=false;
+            selector.SelectedIndex=firstIndex;
+            Check("device editor retains independent edits on selection change",Field<TextBox>(form,"_alias").Text=="办公鼠标" && Field<NumericUpDown>(form,"_threshold").Value==35);
+            Call(form,"SaveChanges");
+            Check("device save failure remains visible with inputs",form.Visible && Field<Label>(form,"_error").Text.Contains("保存失败") && Field<TextBox>(form,"_alias").Text=="办公鼠标");
+            Check("device edits do not mutate original before save",deviceSettings.PreferenceFor("first")==null && deviceSettings.IsHidden("second"));
+            Capture(form,"device-preferences");
+            failDeviceSave=false;Call(form,"SaveChanges");
+            Check("device save retry stores alias threshold and unhides",savedDevices!=null && savedDevices.PreferenceFor("first").Alias=="办公鼠标" && savedDevices.ThresholdFor("first")==35 && !savedDevices.IsHidden("second"));
+        }
+        using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
+            form.Show();form.Opacity=1;
+            savedDevices.PreferenceFor("second").Hidden=true;
+            Update(form,savedDevices,deviceList.Devices.ToArray());
+            Check("hidden preference removes card and summary",Field<FlowLayoutPanel>(form,"_list").Controls.Count==1 && Field<Control>(form,"_count").Text.StartsWith("1 台"));
+            Check("device alias and custom threshold render",Descendants(form).Any(c=>c.Text=="办公鼠标") && Descendants(form).Any(c=>c.Text=="电量偏低"));
+            savedDevices.PreferenceFor("second").Hidden=false;Update(form,savedDevices,deviceList.Devices.ToArray());
+            Check("unhidden preference restores card",Field<FlowLayoutPanel>(form,"_list").Controls.Count==2);
+        }
+        int deviceSignals=0,suspends=0,resumes=0;
+        var eventType=app.GetType("WirelessBatteryMoniter.App.SystemEventWindow");
+        using(var events=(IDisposable)Activator.CreateInstance(eventType,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,new object[]{new Action(()=>deviceSignals++),new Action<bool>(suspended=>{if(suspended)suspends++;else resumes++;})},null)) {
+            var process=eventType.GetMethod("ProcessSignal",BindingFlags.Instance|BindingFlags.NonPublic);
+            process.Invoke(events,new object[]{0x219,7});process.Invoke(events,new object[]{0x219,0x8000});process.Invoke(events,new object[]{0x219,0x8004});
+            process.Invoke(events,new object[]{0x219,99});process.Invoke(events,new object[]{0x218,4});process.Invoke(events,new object[]{0x218,7});process.Invoke(events,new object[]{0x218,18});
+            Check("device and resume signals routed without unrelated messages",deviceSignals==3 && suspends==1 && resumes==2);
+        }
+        var charging = new DeviceBatteryInfo("charging", "充电中的鼠标", "2.4G", "", 10, true, false, new DateTime(2026,1,1,10,12,34), BatteryReadingSource.DeviceReported, BatteryChargeState.Charging);
+        using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
+            form.Show();form.Opacity=1;Update(form,settings,charging);
+            Check("charging card shows charge state before low battery",Descendants(form).Any(c=>c.Text=="正在充电") && !Descendants(form).Any(c=>c.Text=="电量很低"));
+            Capture(form,"main-charging");
+            Update(form,settings,charging.AsUnconfirmedCache());
+            Check("stale charging card shows unknown connection",!Descendants(form).Any(c=>c.Text=="正在充电") && Descendants(form).Any(c=>c.Text.Contains("连接状态未知")));
+        }
+        using(var form=Create("DeviceDetailsForm",charging.AsUnconfirmedCache())) {
+            form.Show();form.Opacity=1;
+            Check("cached charging details label state as historical",Descendants(form).OfType<TextBox>().Single().Text.Contains("上次充电状态：正在充电"));
+            Capture(form,"device-cached-charging");
+        }
+        var estimate = new DeviceBatteryInfo("estimate","估算电量鼠标", "2.4G", "", 100, true, false, new DateTime(2026,1,1,10,12,34), BatteryReadingSource.VoltageEstimate);
+        using(var form=Create("DeviceDetailsForm",estimate.AsUnconfirmedCache())) {
+            form.Show();form.Opacity=1;
+            var text=Descendants(form).OfType<TextBox>().Single().Text;
+            Check("estimated details expose source precision and cached value",text.Contains("约 100%") && text.Contains("电压曲线换算") && text.Contains("估算值") && text.Contains("10:12:34"));
+            Capture(form,"device-estimated-details");
+        }
+        using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
+            form.Show();form.Opacity=1;
+            Update(form,settings,estimate);
+            var card=Field<FlowLayoutPanel>(form,"_list").Controls[0];
+            var level=Field<Label>(card,"_level");
+            Check("estimated card shows qualifier without clipping",level.Text=="约 100" && level.Width>=TextRenderer.MeasureText(level.Text,level.Font).Width);
+            Check("estimated card accessibility keeps qualifier",card.AccessibleName.Contains("约 100%"));
+            Capture(form,"main-estimated-reading");
         }
         using(var host=new Form()) {
             var card=(Control)Activator.CreateInstance(app.GetType("WirelessBatteryMoniter.UI.DeviceCard"),true);

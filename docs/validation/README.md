@@ -1,5 +1,7 @@
 # 验证资料
 
+- [v1.4.0 发布验证](reports/validation-v1.4.0.md)
+
 最新目录调整见 [项目目录重构验证](reports/validation-layout.md)。历史通过项不等于当前代码已重新验证。
 
 报告：

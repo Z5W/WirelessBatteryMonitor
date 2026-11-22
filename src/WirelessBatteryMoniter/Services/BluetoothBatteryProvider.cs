@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -44,20 +44,20 @@ namespace WirelessBatteryMoniter.Services
         private static DeviceBatteryInfo Cached(DeviceBatteryInfo old, bool connected)
         {
             return new DeviceBatteryInfo(old.Id, old.Name, old.Kind, old.Address, old.Level,
-                connected, true, old.LastSeen);
+                connected, true, old.LastSeen, old.ReadingSource, old.ChargeState);
         }
 
         // Timestamp means when a value was observed, not a new device measurement
         // when Windows supplied its cached BatteryLife property.
         internal DeviceBatteryInfo ResolveReading(string key, string name, string kind, string address,
-            int? level, bool connected, DateTime observedAt)
+            int? level, bool connected, DateTime observedAt, BatteryReadingSource source = BatteryReadingSource.WindowsProperty)
         {
             DeviceBatteryInfo old;
             if (!level.HasValue)
                 return _lastKnownLevels.TryGetValue(key, out old) ? Cached(old, connected) : null;
             if (!connected && _lastKnownLevels.TryGetValue(key, out old) && old.Level == level)
                 return Cached(old, false);
-            var reading = new DeviceBatteryInfo(key, name, kind, address, level, connected, !connected, observedAt);
+            var reading = new DeviceBatteryInfo(key, name, kind, address, level, connected, !connected, observedAt, source);
             _lastKnownLevels[key] = reading;
             return reading;
         }
@@ -167,6 +167,7 @@ namespace WirelessBatteryMoniter.Services
                 _deviceKeys[info.Id] = key;
                 bool connected = device.ConnectionStatus == BluetoothConnectionStatus.Connected;
                 int? level = null;
+                BatteryReadingSource source = BatteryReadingSource.BluetoothGatt;
 
                 if (connected)
                 {
@@ -188,11 +189,12 @@ namespace WirelessBatteryMoniter.Services
                 if (!level.HasValue)
                 {
                     level = GetBatteryFromProperties(info.Properties);
+                    source = BatteryReadingSource.WindowsProperty;
                 }
 
                 if (!level.HasValue && connected && _lastKnownLevels.ContainsKey(key))
                     _warnings.Add(name + "：未取得电量，显示上次读数");
-                return ResolveReading(key, name, "蓝牙 LE", address, level, connected, DateTime.Now);
+                return ResolveReading(key, name, "蓝牙 LE", address, level, connected, DateTime.Now, source);
             }
             finally
             {

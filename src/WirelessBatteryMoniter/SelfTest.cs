@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -22,8 +22,156 @@ namespace WirelessBatteryMoniter
                 connected, stale, new DateTime(2026, 1, 1));
         }
 
+        private static async Task RunChannelChecks(Action<string,bool> check)
+        {
+            DateTime now=new DateTime(2026,1,1);int calls=0,disposed=0;
+            var blocked=new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
+            var release=new TaskCompletionSource<bool>();
+            var slow=new BatteryChannel(token=>{Interlocked.Increment(ref calls);return blocked.Task;},()=>null,()=>{Interlocked.Increment(ref disposed);release.TrySetResult(true);},()=>now,40);
+            var quick=new BatteryChannel(token=>Task.FromResult<IReadOnlyList<DeviceBatteryInfo>>(new[]{Reading("fast",60)}),()=>null,()=>{},()=>now);
+            var fast=await quick.PollAsync(10,false,CancellationToken.None,200);
+            await slow.PollAsync(10,false,CancellationToken.None,10);
+            await Task.Delay(60);
+            var pending=await slow.PollAsync(10,true,CancellationToken.None,1);
+            check("slow native cleanup does not block healthy channel",fast.Devices.Count==1 && pending.Error.Contains("超时"));
+            check("manual refresh never overlaps an active provider",calls==1);
+            slow.Dispose();await Task.Delay(10);check("provider not disposed before native completion",disposed==0);
+            blocked.SetResult(new[]{Reading("late",10)});
+            check("provider disposed after late completion",await Task.WhenAny(release.Task,Task.Delay(2000))==release.Task);
+            quick.Dispose();
+            int attempts=0;
+            using(var retry=new BatteryChannel(token=>{
+                attempts++;
+                if(attempts==1)throw new InvalidOperationException("test failure");
+                return Task.FromResult<IReadOnlyList<DeviceBatteryInfo>>(new[]{Reading("recovered",40)});
+            },()=>null,()=>{},()=>now))
+            {
+                var failure=await retry.PollAsync(10,false,CancellationToken.None,200);
+                await retry.PollAsync(10,false,CancellationToken.None,1);
+                check("failed channel backs off before next query",attempts==1 && failure.Error.Contains("失败"));
+                var recovered=await retry.PollAsync(10,true,CancellationToken.None,200);
+                check("manual refresh bypasses backoff and clears failure",attempts==2 && recovered.Error==null && recovered.Devices[0].Level==40);
+                now=now.AddSeconds(9);await retry.PollAsync(10,false,CancellationToken.None,1);
+                check("successful channel respects polling interval",attempts==2);
+                now=now.AddSeconds(2);await retry.PollAsync(10,false,CancellationToken.None,200);
+                check("successful channel resumes normal interval",attempts==3);
+            }
+            check("exponential retry bounded at five minutes",BatteryChannel.RetrySeconds(1,10)==20 && BatteryChannel.RetrySeconds(2,10)==40 && BatteryChannel.RetrySeconds(20,120)==300);
+            using(var canceled=new CancellationTokenSource())
+            using(var channel=new BatteryChannel(token=>Task.FromResult<IReadOnlyList<DeviceBatteryInfo>>(new[]{Reading("x",1)}),()=>null,()=>{}))
+            {
+                canceled.Cancel();bool threw=false;
+                try{await channel.PollAsync(10,false,canceled.Token,1);}catch(OperationCanceledException){threw=true;}
+                check("shutdown prevents channel publication",threw);
+            }
+        }
+
         private static void RunRegressionChecks(Action<string, bool> check)
         {
+            RunChannelChecks(check).GetAwaiter().GetResult();
+            var perDevice=new AppSettings();
+            perDevice.Devices.Add(new DevicePreference {Id="one",Alias="办公鼠标",LowBatteryThreshold=30});
+            perDevice.Devices.Add(new DevicePreference {Id="two",Hidden=true,LowBatteryThreshold=5});
+            perDevice.Devices.Add(new DevicePreference {Id="off",DisableNotifications=true});
+            perDevice.Normalize();
+            var clone=perDevice.Clone();clone.Devices[0].Alias="Changed";
+            check("device preferences deep clone",perDevice.Devices[0].Alias=="办公鼠标");
+            using(var stream=new MemoryStream())
+            {
+                var serializer=new DataContractJsonSerializer(typeof(AppSettings));serializer.WriteObject(stream,perDevice);stream.Position=0;
+                var loaded=(AppSettings)serializer.ReadObject(stream);loaded.Normalize();
+                check("device preferences persist thresholds aliases and visibility",loaded.ThresholdFor("ONE")==30 && loaded.IsHidden("two") && loaded.PreferenceFor("one").Alias=="办公鼠标" && loaded.PreferenceFor("off").DisableNotifications);
+            }
+            var preferenceSnapshot=new BatterySnapshot(new[]{Reading("one",25),Reading("two",1),Reading("off",1)},DateTime.Now,null,false);
+            var display=perDevice.DisplaySnapshot(preferenceSnapshot);
+            check("hidden device excluded from displayed statistics",display.Devices.Count==2 && display.Devices.All(d=>d.Id!="two"));
+            var alias=display.Devices.Single(d=>d.Id=="one");
+            check("alias preserves stable ID and original name",alias.Name=="办公鼠标" && alias.OriginalName=="Same model" && alias.Id=="one");
+            int customAlerts=0;string alertName=null;int alertThreshold=0;
+            var customNotifier=new NotificationService(null,perDevice);perDevice.NotificationSound=false;
+            customNotifier.ToastPresenter=(devices,threshold)=>{customAlerts+=devices.Count;alertName=devices[0].Name;alertThreshold=threshold;};
+            customNotifier.Process(preferenceSnapshot);
+            check("per-device threshold and alias applied while hidden disabled devices skipped",customAlerts==1 && alertName=="办公鼠标" && alertThreshold==30);
+            perDevice.PreferenceFor("two").Hidden=false;customNotifier.Process(preferenceSnapshot);
+            check("unhidden device can alert independently",customAlerts==2 && alertThreshold==5);
+            var asleep=new DeviceBatteryInfo("sleep", "Sleeping", "2.4G", "", 5,true,true,DateTime.Now,BatteryReadingSource.DeviceReported,BatteryChargeState.Unknown,DeviceActivityState.Asleep);
+            var sleepSnapshot=new BatterySnapshot(new[]{asleep},DateTime.Now,null,false);
+            check("explicit sleep has distinct text and no current battery statistic",asleep.StateText.Contains("休眠") && !sleepSnapshot.MinimumLevel.HasValue && sleepSnapshot.ConnectedCount==0);
+            customNotifier.Process(sleepSnapshot);check("sleeping device does not alert",customAlerts==2);
+            check("missing query does not infer sleep",!asleep.AsUnconfirmedCache().IsSleeping && !Reading("awake",50).AsUnconfirmedCache().IsSleeping);
+            foreach (byte chargeCode in new byte[] { 1, 2, 4 })
+                check("HID++ charging status " + chargeCode, HidBatteryProvider.ParseLogitechChargeState(new byte[] { 10, 1, chargeCode }) == BatteryChargeState.Charging);
+            check("HID++ charged state", HidBatteryProvider.ParseLogitechChargeState(new byte[] { 10, 1, 3 }) == BatteryChargeState.Charged);
+            check("HID++ discharging state", HidBatteryProvider.ParseLogitechChargeState(new byte[] { 10, 1, 0 }) == BatteryChargeState.NotCharging);
+            foreach (byte chargeCode in new byte[] { 5, 6, 7, 255 })
+                check("HID++ error or reserved status remains unknown " + chargeCode, HidBatteryProvider.ParseLogitechChargeState(new byte[] { 10, 1, chargeCode }) == BatteryChargeState.Unknown);
+            check("missing charging status remains unknown", HidBatteryProvider.ParseLogitechChargeState(null) == BatteryChargeState.Unknown && HidBatteryProvider.ParseLogitechChargeState(new byte[] { 10, 1 }) == BatteryChargeState.Unknown);
+            int chargeAlerts = 0;
+            var chargeNotifier = new NotificationService(null, new AppSettings { NotificationsEnabled=true, NotificationSound=false, LowBatteryThreshold=20 });
+            chargeNotifier.ToastPresenter = (devices, threshold) => chargeAlerts += devices.Count;
+            Func<BatteryChargeState, bool, DeviceBatteryInfo> chargeReading = (state, stale) => new DeviceBatteryInfo("charging-test", "Mouse", "2.4G", "", 10, true, stale, new DateTime(2026,1,1), BatteryReadingSource.DeviceReported, state);
+            Action<BatteryChargeState, bool> chargeFeed = (state, stale) => chargeNotifier.Process(new BatterySnapshot(new[] { chargeReading(state, stale) }, DateTime.Now, null, false));
+            chargeFeed(BatteryChargeState.Charging, false);
+            chargeFeed(BatteryChargeState.Charged, false);
+            check("charging and charged low readings never alert", chargeAlerts == 0);
+            chargeFeed(BatteryChargeState.NotCharging, false);
+            chargeFeed(BatteryChargeState.NotCharging, false);
+            check("unplugging at low level alerts once", chargeAlerts == 1);
+            chargeFeed(BatteryChargeState.Charging, true);
+            chargeFeed(BatteryChargeState.NotCharging, false);
+            check("cached charging state does not rearm alert", chargeAlerts == 1);
+            chargeFeed(BatteryChargeState.Charging, false);
+            chargeFeed(BatteryChargeState.NotCharging, false);
+            check("confirmed charging rearms next low battery episode", chargeAlerts == 2);
+            chargeFeed(BatteryChargeState.Unknown, false);
+            check("unknown charging status does not rearm alert", chargeAlerts == 2);
+            chargeNotifier.Reset();
+            chargeFeed(BatteryChargeState.Unknown, false);
+            check("unsupported charging status retains low battery alerts", chargeAlerts == 3);
+            var chargeCache = chargeReading(BatteryChargeState.Charging, false).AsUnconfirmedCache();
+            check("charging cache preserves history but not current charging claim", chargeCache.ChargeState == BatteryChargeState.Charging && !chargeCache.IsChargingOrCharged && chargeCache.IsStale);
+            var chargingSnapshot = new BatterySnapshot(new[] { chargeReading(BatteryChargeState.Charging, false) }, DateTime.Now, null, false);
+            check("failure preserves historical charge state", chargingSnapshot.WithFailure("test").Devices[0].ChargeState == BatteryChargeState.Charging && !chargingSnapshot.WithFailure("test").Devices[0].IsChargingOrCharged);
+            check("tray shows confirmed charging", TrayTextFormatter.BuildFull(chargingSnapshot, false).Contains("正在充电"));
+            check("tray does not claim cached charging is current", !TrayTextFormatter.BuildFull(chargingSnapshot.WithFailure("test"), false).Contains("正在充电"));
+            chargeNotifier.Reset();
+            chargeNotifier.Process(new BatterySnapshot(new[] { chargeReading(BatteryChargeState.Charging, false), Reading("other-low", 9) }, DateTime.Now, null, false));
+            check("charging device does not suppress other devices alerts", chargeAlerts == 4);
+            var estimate = new DeviceBatteryInfo("estimate", "Estimated mouse", "2.4G", "", 50, true, false,
+                new DateTime(2026, 1, 1), BatteryReadingSource.VoltageEstimate);
+            check("voltage estimate displays approximate percentage", estimate.LevelText == "约 50%" && estimate.ReadingSourceText == "电压曲线换算");
+            var coarse = new DeviceBatteryInfo("coarse", "Coarse mouse", "2.4G", "", 5, true, false,
+                estimate.LastSeen, BatteryReadingSource.CoarseLevel);
+            check("coarse reading displays approximate percentage", coarse.LevelText == "约 5%" && coarse.ReadingPrecisionText.Contains("粗略档位"));
+            var info = new HidDeviceInfo { Path = "sample" };
+            var reported = HidBatteryProvider.MakeDevice(info, "reported", 50, "mouse");
+            check("HID direct percent not presented as estimate", reported.LevelText == "50%" && reported.ReadingSource == BatteryReadingSource.DeviceReported);
+            check("unknown source does not claim measured precision", Reading("unknown", 50).ReadingPrecisionText == "精度未知");
+            foreach (int boundary in new[] { 0, 100 })
+                check("estimated boundary " + boundary, new DeviceBatteryInfo("edge", "edge", "", "", boundary, true, false, estimate.LastSeen, BatteryReadingSource.VoltageEstimate).LevelText == "约 " + boundary + "%");
+            check("missing level never displays approximate number", new DeviceBatteryInfo("empty", "empty", "", "", null, true, false, estimate.LastSeen, BatteryReadingSource.VoltageEstimate).LevelText == "--");
+            var estimateSnapshot = new BatterySnapshot(new[] { estimate }, DateTime.Now, null, false);
+            check("failure cache preserves estimate source and timestamp", estimateSnapshot.WithFailure("test").Devices[0].ReadingSource == BatteryReadingSource.VoltageEstimate && estimateSnapshot.WithFailure("test").Devices[0].LastSeen == estimate.LastSeen);
+            check("tray preserves estimate qualifier", TrayTextFormatter.BuildFull(estimateSnapshot, false).Contains("约 50%"));
+            using (var provider = new HidBatteryProvider())
+            {
+                provider.ApplyCache(new[] { estimate });
+                var cached = provider.ApplyCache(new DeviceBatteryInfo[0])[0];
+                check("HID cache preserves estimate qualifier", cached.LevelText == "约 50%" && cached.IsConnectionUnknown);
+                var direct = HidBatteryProvider.MakeDevice(info, "direct", 50, "mouse");
+                provider.ApplyCache(new[] { direct });
+                check("direct HID recovery uses current source", provider.ApplyCache(new[] { direct }).Single(d => d.Id == direct.Id).ReadingSource == BatteryReadingSource.DeviceReported);
+            }
+            using (var provider = new BluetoothBatteryProvider())
+            {
+                provider.ResolveReading("source", "BLE", "蓝牙 LE", "", 50, true, estimate.LastSeen, BatteryReadingSource.BluetoothGatt);
+                check("Bluetooth fallback preserves original source", provider.ResolveReading("source", "BLE", "蓝牙 LE", "", null, true, DateTime.Now).ReadingSource == BatteryReadingSource.BluetoothGatt);
+                check("Windows fallback replaces source even at same percentage", provider.ResolveReading("source", "BLE", "蓝牙 LE", "", 50, true, DateTime.Now).ReadingSource == BatteryReadingSource.WindowsProperty);
+            }
+            int parsedLevel; BatteryReadingSource parsedSource;
+            check("Logitech register percent provenance", HidBatteryProvider.LogitechChannel.TryParseRegister(new byte[] { 0x10, 1, 0x81, 0x0D, 50 }, 1, 0x0D, out parsedLevel, out parsedSource) && parsedLevel == 50 && parsedSource == BatteryReadingSource.DeviceReported);
+            check("Logitech register coarse provenance", HidBatteryProvider.LogitechChannel.TryParseRegister(new byte[] { 0x10, 1, 0x81, 0x07, 5 }, 1, 0x07, out parsedLevel, out parsedSource) && parsedLevel == 50 && parsedSource == BatteryReadingSource.CoarseLevel);
+            check("invalid register does not retain previous provenance", !HidBatteryProvider.LogitechChannel.TryParseRegister(new byte[] { 0x10, 1, 0x81, 0x07, 9 }, 1, 0x07, out parsedLevel, out parsedSource) && parsedSource == BatteryReadingSource.Unknown);
             var canceled = new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
             canceled.SetCanceled();
             var freshTask = Task.FromResult<IReadOnlyList<DeviceBatteryInfo>>(new[] { Reading("fresh", 10) });
@@ -145,7 +293,7 @@ namespace WirelessBatteryMoniter
                 hid.ApplyCache(new DeviceBatteryInfo[0]);
                 var wake = hid.ApplyCache(new[] { narrow });
                 check("protocol switch during debounce replaces cached row", wake.Count == 1 && wake[0].Level == 14 && !wake[0].IsStale);
-                for (int miss = 0; miss < HidBatteryProvider.DisconnectMissThreshold; miss++) hid.ApplyCache(new DeviceBatteryInfo[0]);
+                for (int miss = 0; miss < 10; miss++) hid.ApplyCache(new DeviceBatteryInfo[0]);
                 wake = hid.ApplyCache(new[] { wide });
                 check("protocol switch after sleep removes disconnected row", wake.Count == 1 && wake[0].IsConnected && !wake[0].IsStale && wake[0].Level == 13);
                 wake = hid.ApplyCache(new[] { compx });
@@ -169,7 +317,7 @@ namespace WirelessBatteryMoniter
                 hid.ApplyCache(new[] { Reading("one", 50), Reading("two", 40) });
                 var disconnected = hid.ApplyCache(new[] { Reading("two", 39) });
                 var cached = disconnected.Single(d => d.Id == "one");
-                check("HID first miss retains pending connection", cached.Level == 50 && cached.IsConnected && cached.IsStale);
+                check("HID first miss retains pending connection", cached.Level == 50 && cached.IsConnectionUnknown && cached.IsStale);
                 check("HID cache preserves reading timestamp", cached.LastSeen == new DateTime(2026, 1, 1));
                 var reconnected = hid.ApplyCache(new[] { Reading("one", 49), Reading("two", 38) });
                 check("HID reconnect replaces stale state", reconnected.Count == 2 && reconnected.All(d => d.IsConnected && !d.IsStale));
@@ -190,21 +338,37 @@ namespace WirelessBatteryMoniter
                 scan(new[] { Reading("one", 10), Reading("two", 50) });
                 scan(new[] { Reading("two", 49) });
                 var secondMiss = scan(new[] { Reading("two", 48) });
-                check("HID second miss remains pending", secondMiss.Single(d => d.Id == "one").IsConnected && secondMiss.Single(d => d.Id == "one").IsStale);
+                check("HID second miss remains pending", secondMiss.Single(d => d.Id == "one").IsConnectionUnknown && secondMiss.Single(d => d.Id == "one").IsStale);
                 scan(new[] { Reading("ONE", 9), Reading("two", 47) });
                 check("brief failure recovery does not repeat alert", debounceAlerts == 1);
                 var resetMiss = scan(new[] { Reading("two", 46) });
-                check("successful read resets miss count case insensitively", resetMiss.Single(d => d.Id == "ONE").IsConnected);
+                check("missing reading after recovery is unknown case insensitively", resetMiss.Single(d => d.Id == "ONE").IsConnectionUnknown);
                 scan(new[] { Reading("two", 45) });
                 var thirdMiss = scan(new[] { Reading("two", 44) });
                 var offline = thirdMiss.Single(d => d.Id == "ONE");
-                check("third consecutive miss confirms disconnect", !offline.IsConnected && offline.IsStale && offline.Level == 9);
+                check("third consecutive miss remains unknown", offline.IsConnectionUnknown && offline.IsStale && offline.Level == 9);
                 check("debounce preserves last successful timestamp", offline.LastSeen == new DateTime(2026, 1, 1));
                 check("miss counts are isolated by device", thirdMiss.Single(d => d.Id == "two").IsConnected && !thirdMiss.Single(d => d.Id == "two").IsStale);
                 var stillOffline = scan(new[] { Reading("two", 43) });
-                check("continued misses remain offline", !stillOffline.Single(d => d.Id == "ONE").IsConnected);
+                check("continued misses remain unknown", stillOffline.Single(d => d.Id == "ONE").IsConnectionUnknown);
                 scan(new[] { Reading("one", 8), Reading("two", 42) });
-                check("confirmed disconnect recovery rearms alert", debounceAlerts == 2);
+                check("unknown state recovery does not rearm alert", debounceAlerts == 1);
+                for (int miss = 0; miss < 100; miss++) scan(new[] { Reading("two", 42) });
+                var unknownResults = scan(new[] { Reading("two", 42) });
+                var unknownSnapshot = new BatterySnapshot(unknownResults, DateTime.Now, null, false);
+                var unknownDevice = unknownResults.Single(d => d.Id == "one");
+                check("long absence stays unknown and preserves last reading", unknownDevice.IsConnectionUnknown && unknownDevice.IsStale && unknownDevice.Level == 8 && unknownDevice.LastSeen == new DateTime(2026, 1, 1));
+                check("unknown excluded from connected and disconnected counts", unknownSnapshot.ConnectedCount == 1 && unknownSnapshot.PendingCount == 1 && unknownSnapshot.DisconnectedCount == 0);
+                check("unknown cached low battery excluded from current statistics", unknownSnapshot.MinimumLevel == 42 && unknownSnapshot.LowBatteryCount(20) == 0);
+                check("unknown stays visible when disconnected devices hidden", TrayTextFormatter.BuildFull(unknownSnapshot, false).Contains("连接状态未知，缓存"));
+                check("scan failure preserves unknown state", unknownSnapshot.WithFailure("test").Devices.Single(d => d.Id == "one").IsConnectionUnknown);
+                scan(new[] { Reading("one", 8), Reading("two", 42) });
+                check("long absence recovery does not repeat alert", debounceAlerts == 1);
+                scan(new[] { Reading("one", 8, false, true), Reading("two", 42) });
+                var explicitOffline = scan(new[] { Reading("two", 42) });
+                check("explicit disconnection survives cache fallback", explicitOffline.Single(d => d.Id == "one").IsDisconnected);
+                scan(new[] { Reading("one", 8), Reading("two", 42) });
+                check("explicit disconnect recovery rearms alert", debounceAlerts == 2);
             }
 
             var settings = new AppSettings { LowBatteryThreshold = 20, NotificationsEnabled = true, NotificationSound = false };

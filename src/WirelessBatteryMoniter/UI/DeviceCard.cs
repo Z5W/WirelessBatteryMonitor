@@ -36,14 +36,14 @@ namespace WirelessBatteryMoniter.UI
         public void UpdateDevice(DeviceBatteryInfo device,int threshold) {
             _device=device;_threshold=threshold;
             _name.Text=device.Name;
-            _level.Text=device.HasLevel ? device.Level.Value.ToString() : "—";_percent.Visible=device.HasLevel;
-            bool cached=device.IsStale || !device.IsConnected;
+            _level.Text=device.HasLevel ? (device.IsEstimated ? "约 " : "")+device.Level.Value.ToString() : "—";_percent.Visible=device.HasLevel;
+            bool cached=device.IsStale || device.IsSleeping || !device.IsConnected;
             Color color=cached ? Theme.TextMuted : Theme.BatteryColor(device.Level,threshold);
             _level.ForeColor=_percent.ForeColor=color;
             _kind.Text=device.Kind;
-            string type=TrayTextFormatter.DeviceType(device.Name);
+            string type=TrayTextFormatter.DeviceType(device.OriginalName);
             _icon.Text=type=="鼠标" ? "\uE962" : type=="键盘" ? "\uE765" : type=="耳机" ? "\uE7F6" : type=="手柄" ? "\uE7FC" : "\uE770";
-            _state.Text=!device.IsConnected ? "未连接" : device.IsStale ? "连接待确认" : !device.HasLevel ? "暂未获取电量" : device.Level<=10 ? "电量很低" : device.Level<=threshold ? "电量偏低" : "已连接";
+            _state.Text=device.IsSleeping ? "休眠" : device.IsConnectionUnknown ? "连接状态未知" : !device.IsConnected ? "未连接" : device.IsStale ? "连接待确认" : device.IsChargingOrCharged ? device.ChargeStateText : !device.HasLevel ? "暂未获取电量" : device.Level<=10 ? "电量很低" : device.Level<=threshold ? "电量偏低" : "已连接";
             if(cached && device.HasLevel) _state.Text+=" · 缓存读数";
             _state.Fill=cached ? Theme.SurfaceRaised : device.HasLevel && device.Level<=10 ? Color.FromArgb(252,232,230) : device.HasLevel && device.Level<=threshold ? Color.FromArgb(255,240,218) : Theme.Surface;
             _state.ForeColor=cached ? Theme.TextMuted : device.HasLevel && device.Level<=threshold ? color : Theme.TextMuted;
@@ -55,7 +55,7 @@ namespace WirelessBatteryMoniter.UI
         protected override void OnLayout(LayoutEventArgs e) {
             base.OnLayout(e);if(_time==null)return;
             float s=Theme.DpiScale;int pad=(int)(20*s),gap=(int)(12*s),icon=(int)(40*s);
-            int valueWidth=(int)(100*s), nameX=pad+icon+gap;
+            int valueWidth=Math.Max((int)(100*s),TextRenderer.MeasureText(_level.Text,_level.Font).Width+(int)(24*s)), nameX=pad+icon+gap;
             int nameWidth=Math.Max(40,Width-pad-nameX-valueWidth);
             int nameHeight=Math.Min((int)(48*s),Math.Max((int)(24*s),TextRenderer.MeasureText(_name.Text,_name.Font,new Size(nameWidth,int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.NoPrefix).Height));
             _icon.SetBounds(pad,pad,icon,icon);

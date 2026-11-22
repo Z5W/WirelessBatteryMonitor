@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -26,6 +27,9 @@ namespace WirelessBatteryMoniter.App
         private readonly Thread _activateThread;
         private readonly WinFormsTimer _pollTimer;
         private readonly WinFormsTimer _trayCheckTimer;
+        private readonly WinFormsTimer _eventTimer;
+        private readonly SystemEventWindow _systemEvents;
+        private bool _suspended, _queuedRefresh;
         private int _trayCheckAttempts;
         private bool _trayRegistered;
         private bool _trayRecoveryWindowShown;
@@ -61,7 +65,7 @@ namespace WirelessBatteryMoniter.App
             _settings.DemoMode = demoMode;
             _settings.StartWithWindows = StartupService.IsEnabled();
             _settingsService = new SettingsService();
-            _monitor = new BatteryMonitorService { DemoMode = demoMode };
+            _monitor = new BatteryMonitorService { DemoMode = demoMode, PollSeconds = settings.PollSeconds };
 
             _dispatcher = new Control();
             _dispatcher.CreateControl();
@@ -97,8 +101,16 @@ namespace WirelessBatteryMoniter.App
             _notifyIcon.Visible = true;
             Application.Idle += OnApplicationIdle;
 
-            _pollTimer = new WinFormsTimer { Interval = Math.Max(5, _settings.PollSeconds) * 1000 };
+            _pollTimer = new WinFormsTimer { Interval = 1000 };
             _pollTimer.Tick += async (s, e) => await RefreshAsync(false);
+
+            _eventTimer = new WinFormsTimer {Interval=750};
+            _eventTimer.Tick += async (s,e)=> { _eventTimer.Stop(); if(!_suspended && !_exiting){_queuedRefresh=false;await RefreshAsync(true);} };
+            _systemEvents = new SystemEventWindow(QueueEventRefresh, suspended=> {
+                _suspended=suspended;
+                if(suspended){_pollTimer.Stop();_eventTimer.Stop();}
+                else {_pollTimer.Start();QueueEventRefresh();}
+            });
 
             _trayCheckTimer = new WinFormsTimer { Interval = 1500 };
             _trayCheckTimer.Tick += TrayCheckTimer_Tick;
@@ -188,6 +200,7 @@ namespace WirelessBatteryMoniter.App
             exitItem = MenuItem("退出", delegate { ExitApplication(); });
 
             menu.Items.Add(settingsItem);
+            menu.Items.Add(MenuItem("逐设备设置…", delegate { ShowDevicePreferences(); }));
             menu.Items.Add(aboutItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
@@ -229,7 +242,8 @@ namespace WirelessBatteryMoniter.App
 
         private async Task RefreshAsync(bool manual)
         {
-            if (_refreshing || _exiting) return;
+            if (_exiting || _suspended) return;
+            if (_refreshing) {if(manual)_queuedRefresh=true;return;}
             _refreshing = true;
             if (_mainForm != null) _mainForm.SetBusy(true);
 
@@ -237,7 +251,7 @@ namespace WirelessBatteryMoniter.App
             {
                 using (CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token))
                 {
-                    Task<BatterySnapshot> scan = _monitor.ScanAsync(cancellation.Token);
+                    Task<BatterySnapshot> scan = _monitor.ScanAsync(cancellation.Token, manual);
                     _activeScan = scan;
                     BatterySnapshot snapshot = await scan;
                     if (_exiting) return;
@@ -263,10 +277,21 @@ namespace WirelessBatteryMoniter.App
             finally
             {
                 _refreshing = false;
+                if(_queuedRefresh && !_exiting && !_suspended) {_eventTimer.Stop();_eventTimer.Start();}
                 if (!_exiting && _mainForm != null && !_mainForm.IsDisposed) _mainForm.SetBusy(false);
             }
         }
 
+        private void QueueEventRefresh()
+        {
+            if(_exiting || _suspended)return;
+            _queuedRefresh=true;_eventTimer.Stop();_eventTimer.Start();
+        }
+        private void ShowDevicePreferences()
+        {
+            using(var form=new DevicePreferencesForm(_settings,_snapshot ?? BatterySnapshot.Empty(false),ApplySettings))
+            {if(_mainForm!=null && _mainForm.Visible)form.ShowDialog(_mainForm);else form.ShowDialog();}
+        }
         private void ReportRefreshFailure(string error, bool manual)
         {
             _snapshot = (_snapshot ?? BatterySnapshot.Empty(false)).WithFailure(error);
@@ -283,8 +308,9 @@ namespace WirelessBatteryMoniter.App
         {
             if (_snapshot == null) return;
 
-            int count = _snapshot.ConnectedCount;
-            int? minimum = _snapshot.MinimumLevel;
+            var visible = _settings.DisplaySnapshot(_snapshot);
+            int count = visible.ConnectedCount;
+            int? minimum = visible.MinimumLevel;
             Icon newIcon = null;
             try
             {
@@ -331,7 +357,7 @@ namespace WirelessBatteryMoniter.App
 
         private string BuildTrayText()
         {
-            return TrayTextFormatter.BuildFull(_snapshot, _settings.ShowDisconnected);
+            return TrayTextFormatter.BuildFull(_snapshot == null ? null : _settings.DisplaySnapshot(_snapshot), _settings.ShowDisconnected);
         }
 
         private void UpdateTrayText()
@@ -523,6 +549,13 @@ namespace WirelessBatteryMoniter.App
                 }
             }
 
+            foreach(var id in _settings.Devices.Select(d=>d.Id).Concat(updated.Devices.Select(d=>d.Id)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var before=_settings.PreferenceFor(id);var after=updated.PreferenceFor(id);
+                if(_settings.ThresholdFor(id)!=updated.ThresholdFor(id) || _settings.IsHidden(id)!=updated.IsHidden(id)
+                    || (before!=null && before.DisableNotifications)!=(after!=null && after.DisableNotifications)) _notifier.ResetDevice(id);
+            }
+            _settings.Devices=updated.Devices.Select(d=>d.Clone()).ToList();
             bool thresholdChanged = updated.LowBatteryThreshold != _settings.LowBatteryThreshold;
             _settings.LowBatteryThreshold = updated.LowBatteryThreshold;
             _settings.NotificationsEnabled = updated.NotificationsEnabled;
@@ -537,7 +570,7 @@ namespace WirelessBatteryMoniter.App
             _notifier.Settings = _settings;
             if (thresholdChanged || !_settings.NotificationsEnabled) _notifier.Reset();
 
-            _pollTimer.Interval = Math.Max(5, _settings.PollSeconds) * 1000;
+            _monitor.PollSeconds = _settings.PollSeconds;
             // Repaint from the existing snapshot immediately; do not wait for another scan.
             ApplySnapshot();
             if (_snapshot == null) UpdateTrayText();
@@ -611,6 +644,8 @@ namespace WirelessBatteryMoniter.App
                 _disposed = true;
                 _exiting = true;
                 _shutdown.Cancel();
+                _systemEvents.Dispose();
+                _eventTimer.Dispose();
                 _pollTimer.Dispose();
                 _trayCheckTimer.Dispose();
                 Application.Idle -= OnApplicationIdle;

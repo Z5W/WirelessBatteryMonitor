@@ -170,8 +170,8 @@ namespace WirelessBatteryMoniter
                 using (var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
                 {
                     BatterySnapshot snapshot = monitor.ScanAsync(cancellation.Token).GetAwaiter().GetResult();
-                    var lines = snapshot.Devices.Select(d => string.Format("{0} | {1} | {2} | connected={3} | stale={4} | {5}",
-                        d.Name, d.Kind, d.LevelText, d.IsConnected, d.IsStale, d.Id)).ToList();
+                    var lines = snapshot.Devices.Select(d => string.Format("{0} | {1} | {2} | connection={3} | stale={4} | {5} | charge={6}",
+                        d.Name, d.Kind, d.LevelText, d.ConnectionState, d.IsStale, d.Id, d.ChargeState)).ToList();
                     lines.Insert(0, "Scan at " + DateTime.Now.ToString("O") + "; count=" + snapshot.Devices.Count);
                     if (!string.IsNullOrEmpty(snapshot.Error)) lines.Add("ERROR: " + snapshot.Error);
                     File.WriteAllLines(output, lines);

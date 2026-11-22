@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 
 namespace WirelessBatteryMoniter.Models
@@ -30,6 +32,9 @@ namespace WirelessBatteryMoniter.Models
         [DataMember(Order = 7)]
         public bool FirstRun { get; set; }
 
+        [DataMember(Order = 8)]
+        public List<DevicePreference> Devices { get; set; }
+
         /// <summary>Runtime-only, always synchronized from the registry on load.</summary>
         [IgnoreDataMember]
         public bool StartWithWindows { get; set; }
@@ -48,6 +53,7 @@ namespace WirelessBatteryMoniter.Models
         /// </summary>
         private void SetDefaults()
         {
+            Devices = new List<DevicePreference>();
             LowBatteryThreshold = 20;
             NotificationsEnabled = true;
             NotificationSound = true;
@@ -75,12 +81,30 @@ namespace WirelessBatteryMoniter.Models
 
         public void Normalize()
         {
+            Devices = (Devices ?? new List<DevicePreference>()).Where(d => d != null && !string.IsNullOrWhiteSpace(d.Id))
+                .GroupBy(d => d.Id, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()).ToList();
+            foreach (var device in Devices) device.Normalize();
             if (LowBatteryThreshold < 5) LowBatteryThreshold = 5;
             if (LowBatteryThreshold > 95) LowBatteryThreshold = 95;
             if (PollSeconds < 5) PollSeconds = 5;
             if (PollSeconds > 120) PollSeconds = 120;
         }
 
+        public DevicePreference PreferenceFor(string id)
+        {
+            return (Devices ?? new List<DevicePreference>()).FirstOrDefault(d => string.Equals(d.Id,id,StringComparison.OrdinalIgnoreCase));
+        }
+        public int ThresholdFor(string id) { var p=PreferenceFor(id); return p != null && p.LowBatteryThreshold.HasValue ? p.LowBatteryThreshold.Value : LowBatteryThreshold; }
+        public bool IsHidden(string id) { var p=PreferenceFor(id); return p != null && p.Hidden; }
+        public DeviceBatteryInfo DisplayDevice(DeviceBatteryInfo device)
+        {
+            var p=PreferenceFor(device.Id);
+            return p != null && !string.IsNullOrWhiteSpace(p.Alias) ? device.WithDisplayName(p.Alias) : device;
+        }
+        public BatterySnapshot DisplaySnapshot(BatterySnapshot snapshot)
+        {
+            return new BatterySnapshot(snapshot.Devices.Where(d=>!IsHidden(d.Id)).Select(DisplayDevice),snapshot.Timestamp,snapshot.Error,snapshot.IsDemo);
+        }
         public AppSettings Clone()
         {
             return new AppSettings
@@ -93,7 +117,8 @@ namespace WirelessBatteryMoniter.Models
                 ShowDisconnected = ShowDisconnected,
                 FirstRun = FirstRun,
                 StartWithWindows = StartWithWindows,
-                DemoMode = DemoMode
+                DemoMode = DemoMode,
+                Devices = (Devices ?? new List<DevicePreference>()).Select(d => d.Clone()).ToList()
             };
         }
     }

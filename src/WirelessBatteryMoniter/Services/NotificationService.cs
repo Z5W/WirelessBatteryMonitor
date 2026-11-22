@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Media;
@@ -9,7 +9,7 @@ namespace WirelessBatteryMoniter.Services
 {
     /// <summary>
     /// Emits one desktop notification per low-battery episode. A device is re-armed
-    /// after its level recovers above threshold + 5 or after it disconnects.
+    /// after its level recovers above threshold + 5, charging is confirmed, or it disconnects.
     /// </summary>
     public sealed class NotificationService
     {
@@ -47,16 +47,28 @@ namespace WirelessBatteryMoniter.Services
 
             foreach (DeviceBatteryInfo device in snapshot.Devices)
             {
-                if (!device.IsConnected) continue;
+                var preference = Settings.PreferenceFor(device.Id);
+                if (Settings.IsHidden(device.Id) || (preference != null && preference.DisableNotifications))
+                { _alertedDeviceIds.Remove(device.Id); continue; }
+                threshold = Settings.ThresholdFor(device.Id);
+                if (device.IsDisconnected) continue;
                 connectedIds.Add(device.Id);
-                if (!device.Level.HasValue || device.IsStale) continue;
+                // Unknown link state neither alerts nor re-arms an existing alert.
+                if (device.IsConnectionUnknown) continue;
+                if (device.IsStale || device.IsSleeping) continue;
+                if (device.IsChargingOrCharged)
+                {
+                    _alertedDeviceIds.Remove(device.Id);
+                    continue;
+                }
+                if (!device.Level.HasValue) continue;
 
                 if (device.Level.Value <= threshold)
                 {
                     if (!_alertedDeviceIds.Contains(device.Id))
                     {
                         _alertedDeviceIds.Add(device.Id);
-                        newlyLow.Add(device);
+                        newlyLow.Add(Settings.DisplayDevice(device));
                     }
                 }
                 else if (device.Level.Value > threshold + 5)
@@ -70,7 +82,7 @@ namespace WirelessBatteryMoniter.Services
             _alertedDeviceIds.RemoveWhere(id => !connectedIds.Contains(id));
 
             if (newlyLow.Count == 0) return;
-            ShowLowBatteryToast(newlyLow, threshold);
+            ShowLowBatteryToast(newlyLow, newlyLow.Select(d=>Settings.ThresholdFor(d.Id)).Distinct().Count()==1 ? Settings.ThresholdFor(newlyLow[0].Id) : 0);
         }
 
         public void ShowTest()
@@ -93,7 +105,7 @@ namespace WirelessBatteryMoniter.Services
 
             IEnumerable<string> parts = devices
                 .Take(3)
-                .Select(d => string.Format("{0} {1}%", d.Name, d.Level.HasValue ? d.Level.Value : 0));
+                .Select(d => string.Format("{0} {1}", d.Name, d.LevelText));
             string summary = string.Join(" · ", parts);
             if (devices.Count > 3)
             {
@@ -101,7 +113,7 @@ namespace WirelessBatteryMoniter.Services
             }
 
             string body = summary + Environment.NewLine
-                + string.Format("电量已低于 {0}%，请及时充电。", threshold);
+                + (threshold > 0 ? string.Format("电量已达到提醒阈值 {0}%，请及时充电。", threshold) : "电量已达到各自的提醒阈值，请及时充电。");
 
             try
             {
@@ -125,6 +137,8 @@ namespace WirelessBatteryMoniter.Services
                 AppLog.Error("Failed to show low battery notification.", ex);
             }
         }
+
+        public void ResetDevice(string id) { _alertedDeviceIds.Remove(id); }
 
         public void Reset()
         {

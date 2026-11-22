@@ -1,4 +1,4 @@
-# 开发与发布工作流
+﻿# 开发与发布工作流
 
 ## 文件边界
 
@@ -13,11 +13,11 @@
 ```powershell
 .\build.ps1 -FrameworkCompiler
 .\tools\verify.ps1 -Hardware -Tray
-# 首次安装或升级：生成包后运行 dist/v1.3.0/Install.cmd
+# 首次安装或升级：生成包后运行 dist/v1.4.0/Install.cmd
 .\run.ps1 -Open # 仅启动固定安装目录
 .\build.ps1 -FrameworkCompiler -Package
 .\tools\verify-package.ps1
-.\tools\verify.ps1 -Executable .\dist\v1.3.0\WirelessBatteryMoniter.exe -Hardware -Tray
+.\tools\verify.ps1 -Executable .\dist\v1.4.0\WirelessBatteryMoniter.exe -Hardware -Tray
 ```
 
 构建默认为 Release；Debug 可用 `-Configuration Debug`，测试时显式指定对应 exe。无 `-FrameworkCompiler` 时尝试 SDK，没有 SDK 则回退系统编译器。`-VersionedOutput` 是 `-Package` 的兼容入口。版本来自编译后的文件版本。

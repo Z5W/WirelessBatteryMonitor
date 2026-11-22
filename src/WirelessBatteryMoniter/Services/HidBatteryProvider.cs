@@ -19,10 +19,8 @@ namespace WirelessBatteryMoniter.Services
         private readonly HashSet<string> _logged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DeviceBatteryInfo> _lastKnown =
             new Dictionary<string, DeviceBatteryInfo>(StringComparer.OrdinalIgnoreCase);
-        internal const int DisconnectMissThreshold = 3;
-        private readonly Dictionary<string, int> _consecutiveMisses =
-            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private CancellationToken _scanToken;
+        public string LastWarning { get; private set; }
 
         public string Name
         {
@@ -39,6 +37,7 @@ namespace WirelessBatteryMoniter.Services
         private IReadOnlyList<DeviceBatteryInfo> Scan(CancellationToken cancellationToken)
         {
             _scanToken = cancellationToken;
+            LastWarning = null;
             List<DeviceBatteryInfo> result = new List<DeviceBatteryInfo>();
             List<HidDeviceInfo> interfaces;
             try
@@ -49,7 +48,7 @@ namespace WirelessBatteryMoniter.Services
             catch (Exception ex)
             {
                 AppLog.Error("Could not enumerate HID devices.", ex);
-                return result;
+                throw;
             }
 
             Dictionary<string, List<HidDeviceInfo>> groups = new Dictionary<string, List<HidDeviceInfo>>(StringComparer.OrdinalIgnoreCase);
@@ -81,6 +80,7 @@ namespace WirelessBatteryMoniter.Services
                             : TryCompx(entry.Value) ?? TryAtk(entry.Value);
                         if (device != null) found.Add(device);
                     }
+                    if(found.Count==0) LastWarning="部分 HID 接收器未返回有效读数";
                     foreach (DeviceBatteryInfo device in found)
                     {
                         if (result.Any(d => string.Equals(d.Id, device.Id, StringComparison.OrdinalIgnoreCase))) continue;
@@ -95,6 +95,7 @@ namespace WirelessBatteryMoniter.Services
                 }
                 catch (Exception ex)
                 {
+                    LastWarning="部分 HID 设备查询失败";
                     LogOnce("hid-group-" + entry.Key, "HID 2.4G read failed for " + entry.Key + ": " + ex.Message);
                 }
             }
@@ -362,20 +363,14 @@ namespace WirelessBatteryMoniter.Services
             foreach (DeviceBatteryInfo device in result)
             {
                 _lastKnown[device.Id] = device;
-                _consecutiveMisses.Remove(device.Id);
             }
             foreach (DeviceBatteryInfo old in _lastKnown.Values)
             {
                 if (!current.Contains(old.Id))
                 {
-                    // Only completed scans reach this point. A canceled scan is not
-                    // evidence of disconnect. Keep the last reading time unchanged.
-                    int misses;
-                    _consecutiveMisses.TryGetValue(old.Id, out misses);
-                    misses = Math.Min(DisconnectMissThreshold, misses + 1);
-                    _consecutiveMisses[old.Id] = misses;
-                    result.Add(new DeviceBatteryInfo(old.Id, old.Name, old.Kind, old.Address,
-                        old.Level, old.IsConnected && misses < DisconnectMissThreshold, true, old.LastSeen));
+                    // Missing telemetry cannot distinguish sleep, query failure and
+                    // disconnection, regardless of how many polls have missed.
+                    result.Add(old.AsUnconfirmedCache());
                 }
             }
             return result.AsReadOnly();
@@ -406,14 +401,14 @@ namespace WirelessBatteryMoniter.Services
                     int level = reply.Params[0];
                     if (level > 0 && level <= 100)
                     {
-                        return MakeDevice(channel.LongInfo, name, level, "logitech-" + slot);
+                        return MakeDevice(channel.LongInfo, name, level, "logitech-" + slot, BatteryReadingSource.DeviceReported, ParseLogitechChargeState(reply.Params));
                     }
                     if (level == 0 && reply.Params[1] != 0)
                     {
                         int approximate;
                         if (ApproximateLevels.TryGetValue(reply.Params[1], out approximate))
                         {
-                            return MakeDevice(channel.LongInfo, name, approximate, "logitech-" + slot);
+                            return MakeDevice(channel.LongInfo, name, approximate, "logitech-" + slot, BatteryReadingSource.CoarseLevel, ParseLogitechChargeState(reply.Params));
                         }
                     }
                 }
@@ -428,7 +423,7 @@ namespace WirelessBatteryMoniter.Services
                     int level = reply.Params[0];
                     if (level > 0 && level <= 100)
                     {
-                        return MakeDevice(channel.LongInfo, name, level, "logitech-" + slot);
+                        return MakeDevice(channel.LongInfo, name, level, "logitech-" + slot, BatteryReadingSource.DeviceReported, ParseLogitechChargeState(reply.Params));
                     }
                 }
             }
@@ -442,18 +437,36 @@ namespace WirelessBatteryMoniter.Services
                     int mv = (reply.Params[0] << 8) | reply.Params[1];
                     if (mv >= 2500 && mv <= 5000)
                     {
-                        return MakeDevice(channel.LongInfo, name, VoltageToPercent(mv), "logitech-" + slot);
+                        return MakeDevice(channel.LongInfo, name, VoltageToPercent(mv), "logitech-" + slot, BatteryReadingSource.VoltageEstimate);
                     }
                 }
             }
 
             int registerLevel;
-            if (channel.TryReadBatteryRegister(slot, out registerLevel) && registerLevel >= 0 && registerLevel <= 100)
+            BatteryReadingSource registerSource;
+            if (channel.TryReadBatteryRegister(slot, out registerLevel, out registerSource) && registerLevel >= 0 && registerLevel <= 100)
             {
-                return MakeDevice(channel.LongInfo, name, registerLevel, "logitech-" + slot);
+                return MakeDevice(channel.LongInfo, name, registerLevel, "logitech-" + slot, registerSource);
             }
 
             return null;
+        }
+
+        // HID++ 0x1000 / 0x1004: third parameter is the battery status enum.
+        // Protocol cross-check: pwr-Solaar/Solaar hidpp20.py and common.BatteryStatus.
+        // Do not reuse this decoder for voltage flags or HID++ 1.0 registers.
+        internal static BatteryChargeState ParseLogitechChargeState(byte[] parameters)
+        {
+            if (parameters == null || parameters.Length < 3) return BatteryChargeState.Unknown;
+            switch (parameters[2])
+            {
+                case 0: return BatteryChargeState.NotCharging;
+                case 1:
+                case 2:
+                case 4: return BatteryChargeState.Charging;
+                case 3: return BatteryChargeState.Charged;
+                default: return BatteryChargeState.Unknown; // Errors and reserved states.
+            }
         }
 
         private string ReadLogitechName(LogitechChannel channel, int slot)
@@ -522,7 +535,7 @@ namespace WirelessBatteryMoniter.Services
             return name;
         }
 
-        internal static DeviceBatteryInfo MakeDevice(HidDeviceInfo info, string name, int level, string suffix)
+        internal static DeviceBatteryInfo MakeDevice(HidDeviceInfo info, string name, int level, string suffix, BatteryReadingSource readingSource = BatteryReadingSource.DeviceReported, BatteryChargeState chargeState = BatteryChargeState.Unknown)
         {
             // These are alternate battery queries for the same single mouse,
             // not device identities. Keep receiver instances and Logitech slots distinct.
@@ -536,7 +549,7 @@ namespace WirelessBatteryMoniter.Services
                 level,
                 true,
                 false,
-                DateTime.Now);
+                DateTime.Now, readingSource, chargeState);
         }
 
         private void LogOnce(string key, string message)
@@ -549,10 +562,9 @@ namespace WirelessBatteryMoniter.Services
         {
             _logged.Clear();
             _lastKnown.Clear();
-            _consecutiveMisses.Clear();
         }
 
-        private sealed class LogitechReply
+        internal sealed class LogitechReply
         {
             public bool Success;
             public bool Error;
@@ -560,7 +572,7 @@ namespace WirelessBatteryMoniter.Services
             public byte[] Params = new byte[0];
         }
 
-        private sealed class LogitechChannel
+        internal sealed class LogitechChannel
         {
             private readonly HidDevice _long;
             private readonly HidDevice _short;
@@ -635,9 +647,10 @@ namespace WirelessBatteryMoniter.Services
                 return reply.Params[0];
             }
 
-            public bool TryReadBatteryRegister(int slot, out int level)
+            public bool TryReadBatteryRegister(int slot, out int level, out BatteryReadingSource source)
             {
                 level = -1;
+                source = BatteryReadingSource.Unknown;
                 if (_short == null) return false;
 
                 byte[] request = { 0x10, (byte)slot, 0x81, 0x0D, 0x00, 0x00, 0x00 };
@@ -655,9 +668,9 @@ namespace WirelessBatteryMoniter.Services
                 while (DateTime.UtcNow < deadline)
                 {
                     byte[] shortReply = _short.Read(7, 60);
-                    if (TryParseRegister(shortReply, slot, 0x0D, out level)) return true;
+                    if (TryParseRegister(shortReply, slot, 0x0D, out level, out source)) return true;
                     byte[] longReply = _long.Read(20, 60);
-                    if (TryParseRegister(longReply, slot, 0x0D, out level)) return true;
+                    if (TryParseRegister(longReply, slot, 0x0D, out level, out source)) return true;
                     Thread.Sleep(5);
                 }
 
@@ -676,17 +689,18 @@ namespace WirelessBatteryMoniter.Services
                 while (DateTime.UtcNow < deadline)
                 {
                     byte[] shortReply = _short.Read(7, 60);
-                    if (TryParseRegister(shortReply, slot, 0x07, out level)) return true;
+                    if (TryParseRegister(shortReply, slot, 0x07, out level, out source)) return true;
                     byte[] longReply = _long.Read(20, 60);
-                    if (TryParseRegister(longReply, slot, 0x07, out level)) return true;
+                    if (TryParseRegister(longReply, slot, 0x07, out level, out source)) return true;
                     Thread.Sleep(5);
                 }
                 return false;
             }
 
-            private static bool TryParseRegister(byte[] data, int slot, int register, out int level)
+            internal static bool TryParseRegister(byte[] data, int slot, int register, out int level, out BatteryReadingSource source)
             {
                 level = -1;
+                source = BatteryReadingSource.Unknown;
                 if (data == null || data.Length < 5) return false;
                 if (data[1] != slot || data[2] != 0x81 || data[3] != register) return false;
 
@@ -696,6 +710,7 @@ namespace WirelessBatteryMoniter.Services
                     if (value > 0 && value <= 100)
                     {
                         level = value;
+                        source = BatteryReadingSource.DeviceReported;
                         return true;
                     }
                     return false;
@@ -709,6 +724,7 @@ namespace WirelessBatteryMoniter.Services
                     else if (value == 3) level = 20;
                     else if (value == 1) level = 5;
                     else return false;
+                    source = BatteryReadingSource.CoarseLevel;
                     return true;
                 }
                 return false;

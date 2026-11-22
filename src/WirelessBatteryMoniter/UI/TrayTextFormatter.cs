@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Collections.Generic;
 using WirelessBatteryMoniter.Models;
@@ -35,8 +35,9 @@ namespace WirelessBatteryMoniter.UI
         private static string Line(DeviceBatteryInfo device, int nameLimit)
         {
             string kind = device.Kind == "2.4G" ? "2.4G" : device.Kind == "蓝牙 LE" ? "BLE" : device.Kind.Contains("蓝牙") ? "蓝牙" : Clean(device.Kind);
-            string state = !device.IsConnected ? "（未连接）" : device.IsStale ? "（待确认，缓存）" : "";
-            return "[" + Shorten(kind, 8) + "] " + DeviceType(device.Name) + ": "
+            string state = device.IsSleeping ? "（休眠，上次读数）" : device.IsConnectionUnknown ? "（连接状态未知，缓存）" : !device.IsConnected ? "（未连接）" : device.IsStale ? "（待确认，缓存）" : "";
+            if (device.IsChargingOrCharged) state += "（" + device.ChargeStateText + "）";
+            return "[" + Shorten(kind, 8) + "] " + DeviceType(device.OriginalName) + ": "
                 + Shorten(Clean(device.Name), nameLimit) + " " + device.LevelText + "电量" + state;
         }
 
@@ -52,7 +53,7 @@ namespace WirelessBatteryMoniter.UI
         {
             string header = Header(snapshot);
             if (snapshot == null) return header + "\n正在扫描…";
-            var devices = snapshot.Devices.Where(d => d.IsConnected || showDisconnected).ToList();
+            var devices = snapshot.Devices.Where(d => !d.IsDisconnected || showDisconnected).ToList();
             return header + "\n" + (devices.Count == 0 ? "未发现设备" : string.Join("\n", devices.Select(d => Line(d, int.MaxValue))));
         }
 
@@ -60,7 +61,7 @@ namespace WirelessBatteryMoniter.UI
         {
             string header = Header(snapshot);
             if (snapshot == null) return header + "\n正在扫描…";
-            var devices = snapshot.Devices.Where(d => d.IsConnected || showDisconnected).ToList();
+            var devices = snapshot.Devices.Where(d => !d.IsDisconnected || showDisconnected).ToList();
             if (devices.Count == 0) return header + "\n未发现设备";
             // Keep all rows if shortening names can fit the native 127-character
             // buffer. Never truncate a percentage or silently drop a device.

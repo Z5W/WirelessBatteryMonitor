@@ -135,12 +135,12 @@ namespace WirelessBatteryMoniter.UI
 
             string summary = _devices == null
                 ? string.Empty
-                : string.Join(" · ", _devices.Take(3).Select(d => string.Format("{0} {1}%", d.Name, d.Level.HasValue ? d.Level.Value : 0)));
+                : string.Join(" · ", _devices.Take(3).Select(d => string.Format("{0} {1}", d.Name, d.LevelText)));
             if (count > 3) summary += string.Format(" 等 {0} 台", count);
             Theme.DrawText(graphics, summary, Theme.Font(8.5f, FontStyle.Regular), Theme.TextMuted,
                 new Rectangle(S(72), S(38), Width - S(98), S(20)), Theme.LeftMiddle);
 
-            Theme.DrawText(graphics, string.Format("电量已低于 {0}%，请及时充电", _threshold),
+            Theme.DrawText(graphics, (_threshold > 0 ? string.Format("电量达到提醒阈值 {0}%，请及时充电", _threshold) : "电量达到各自提醒阈值，请及时充电"),
                 Theme.Font(8.5f, FontStyle.Regular), Theme.Amber,
                 new Rectangle(S(72), S(59), Width - S(98), S(19)), Theme.LeftMiddle);
 

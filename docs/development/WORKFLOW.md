@@ -2,6 +2,7 @@
 
 ## 文件边界
 
+- 根 `README.md` 保持简介、安装、支持范围和更新摘要；详细使用行为维护在 `docs/user/README.md`，版本记录维护在 `CHANGELOG.md`，验证结论维护在对应报告中。更新首页时保留这些入口，历史报告明确标注所属阶段。
 - `src/` 保存程序实现、项目文件、清单和编译资源。根目录 `Directory.Build.props` 只调整 SDK 输出路径。
 - `design/assets/` 保存设计原稿；`tools/make_icon.py` 从任意工作目录运行均写入这里。替换程序图标属于单独的源码资源变更，不自动覆盖 `src/`。
 - `.tools/` 保存机器本地依赖，不提交；`artifacts/` 保存可再生输出和本次迁移保留的本地档案，不提交。
@@ -13,11 +14,11 @@
 ```powershell
 .\build.ps1 -FrameworkCompiler
 .\tools\verify.ps1 -Hardware -Tray
-# 首次安装或升级：生成包后运行 dist/v1.4.0/Install.cmd
+# 首次安装或升级：生成包后运行 dist/v1.4.1/Install.cmd
 .\run.ps1 -Open # 仅启动固定安装目录
 .\build.ps1 -FrameworkCompiler -Package
 .\tools\verify-package.ps1
-.\tools\verify.ps1 -Executable .\dist\v1.4.0\WirelessBatteryMoniter.exe -Hardware -Tray
+.\tools\verify.ps1 -Executable .\dist\v1.4.1\WirelessBatteryMoniter.exe -Hardware -Tray
 ```
 
 构建默认为 Release；Debug 可用 `-Configuration Debug`，测试时显式指定对应 exe。无 `-FrameworkCompiler` 时尝试 SDK，没有 SDK 则回退系统编译器。`-VersionedOutput` 是 `-Package` 的兼容入口。版本来自编译后的文件版本。
@@ -71,3 +72,26 @@ install-transaction.ps1
 
 本次历史发布目录已归档至 artifacts/archive/releases-before-fixed-install/，迁移映射见该目录 migration.json。安装集成测试：tools/test-install.ps1（先退出程序，测试使用 artifacts/tests 中的独立 LOCALAPPDATA，不修改真实快捷方式或注册表）。
 
+
+## 主图标实现（2026-11-22）
+
+- 当前矢量原稿为 `design/assets/app-icon-vector-v9.svg`，预览和多尺寸导出为同名 PNG/ICO。旧 `tools/make_icon.py` 仍生成历史设计，不用于重建新版图标。
+- `design/assets/app.ico` 与 `src/WirelessBatteryMoniter/Assets/app.ico` 均采用新版 ICO，包含 16、20、24、32、40、48、64、128、256 像素。项目的 `ApplicationIcon` 和 Framework 构建的 `/win32icon` 均引用源码资源。
+- 四行电池在 1024 × 1024 画布中的顶部为 118、318、518、718，高度均为 188，上下留白均为 118。背景为 `#FFF2F5`，圆角半径为 36；绿色填充比例为 90%、55%、75%、35%，白色闪电采用深灰描边。
+- 主图标与 `TrayIconRenderer` 的动态设备数量/最低电量图标相互独立，本次未修改后者或其调用逻辑。
+- 本机桌面快捷方式恢复后仍指向固定安装目录内的 `WirelessBatteryMoniterTray.exe`，参数为 `--open`。新版 `app.ico` 另存于安装目录供快捷方式显示使用；未升级安装版 EXE。后续正常安装会按安装器规则使用 EXE 内嵌图标。
+
+### 四处界面图标补齐与本机更新（2026-11-22）
+
+- AppIcon 统一加载内嵌 Assets/app.ico；主窗口、设置及关于窗口标题栏显式设置图标，不再依赖 Shell 缓存或默认 WinForms 图标。
+- 主界面及关于页标志读取内嵌 Assets/app.png（1024 像素），避开 .NET Framework 对 PNG 编码 ICO 大尺寸帧转位图的兼容问题。两条构建路径均包含相同资源。
+- 已重新构建并校验本地 v1.4.0 安装包，更新固定安装目录并启动；安装 EXE 的 SHA256 与包内一致。此状态取代上文“未升级安装版 EXE”的阶段记录，桌面快捷方式现使用新 EXE 的内嵌图标。
+- 动态电量/设备数量托盘图标逻辑未改动。168 项逻辑检查通过，并增加主窗口、设置窗口和关于窗口图标回归覆盖。
+
+### 桌面启动入口修复（2026-11-22）
+
+用户反馈双击桌面快捷方式后主界面打不开，直接以 --open 正常窗口模式启动后用户确认恢复。修正安装器快捷方式 WindowStyle 为 1（正常），安装后 --open 启动改为 Normal；run.ps1 -Open 同步使用 Normal，显式 -Minimized 保持后台启动。重新构建、校验安装包并安装后，从实际桌面快捷方式启动验证主窗口存在且 IsOffscreen=False；用户配置及动态托盘角标逻辑未修改。
+
+### 逐设备设置与设备详情图标（2026-11-22）
+
+两个窗口显式使用 AppIcon.Load(32)，与主窗口保持一致。新增两项界面回归，168 项逻辑检查和 74 项界面检查通过，并检查截图。本机安装版已更新；保留桌面兼容 ICO 引用和正常窗口启动模式，动态托盘角标未改动。

@@ -16,8 +16,9 @@ if ($Demo) { $arguments += '--demo' }
 if ($Open) { $arguments += '--open' }
 if ($Minimized) { $arguments += '--minimized' }
 
+$windowStyle = if ($Open -and !$Minimized) { 'Normal' } else { 'Hidden' }
 if ($arguments.Count -gt 0) {
-    Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden
+    Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle $windowStyle
 } else {
     Start-Process -FilePath $exe -WindowStyle Hidden
 }

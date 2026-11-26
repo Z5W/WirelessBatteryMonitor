@@ -1,4 +1,4 @@
-﻿WirelessBatteryMoniter 1.4.0
+﻿WirelessBatteryMoniter 1.4.1
 
 1. 解压完整压缩包，运行 Start.cmd：安装或升级到固定目录后启动。Install.cmd 只安装。
 2. 固定程序：%LOCALAPPDATA%\Programs\WirelessBatteryMoniter\WirelessBatteryMoniterTray.exe。

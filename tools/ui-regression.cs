@@ -39,6 +39,9 @@ class UiRegression
         using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
             form.Show();
             Check("main maximize disabled",!form.MaximizeBox);
+            Check("main uses application icon", form.Icon != null && form.Icon.Size == new Size(32,32));
+            var mainLogo = Field<Panel>(form,"_header").Controls.OfType<PictureBox>().Single();
+            Check("main logo uses high resolution artwork", mainLogo.Image != null && mainLogo.Image.Width == 1024);
             Check("embedded font family active",form.Font.FontFamily.Name=="WBM Mixed Sans");
             Check("embedded regular and bold faces",form.Font.FontFamily.IsStyleAvailable(FontStyle.Regular)&&form.Font.FontFamily.IsStyleAvailable(FontStyle.Bold));
             Check("initial scan is not an empty error",Field<Control>(form,"_empty").Visible && Field<Control>(form,"_empty").Text.Contains("正在查找"));
@@ -108,7 +111,13 @@ class UiRegression
             Capture(form,"main-zero-full");
             form.Close();Check("close hides instead of exiting",!form.IsDisposed&&!form.Visible);
         }
+        using(var form=Create("AboutForm")) {
+            form.Show();
+            Check("about uses application icon", form.Icon != null && form.Icon.Size == new Size(32,32));
+            Capture(form,"about-main-icon");
+        }
         using(var form=Create("SettingsForm",settings,new Action<AppSettings>(s=>{}),new Action(()=>{}))) {
+            Check("settings uses application icon", form.Icon != null && form.Icon.Size == new Size(32,32) && form.Icon.Handle != SystemIcons.Application.Handle);
             form.Show();Check("settings inputs remain inside scroller", new[]{"_pollSeconds","_threshold","_notifications","_sound","_startup","_startMinimized"}.All(n=> { var input=Field<Control>(form,n);return input.Left>=0 && input.Right<=input.Parent.ClientSize.Width; }));var notifications=Field<Control>(form,"_notifications");
             notifications.GetType().GetProperty("Checked").SetValue(notifications,false,null);
             Check("notifications off disables dependent controls",!Field<Control>(form,"_threshold").Enabled&&!Field<Control>(form,"_sound").Enabled&&!Field<Control>(form,"_testButton").Enabled);
@@ -133,6 +142,7 @@ class UiRegression
             Capture(form,"error-details");
         }
         using(var form=Create("DeviceDetailsForm",Reading("details","完整设备名称 Wireless Mouse with a very long name",70,true,true))) {
+            Check("device details uses application icon", form.Icon != null && form.Icon.Size == new Size(32,32) && form.Icon.Handle != SystemIcons.Application.Handle);
             form.Show();form.Opacity=1;Check("device maximize disabled",!form.MaximizeBox);
             var text=Descendants(form).OfType<TextBox>().Single();
             Check("device details retains full name and cached time",text.Text.Contains("完整设备名称 Wireless Mouse with a very long name")&&text.Text.Contains("10:12:34")&&text.Text.Contains("上次读数"));
@@ -143,6 +153,7 @@ class UiRegression
         deviceSettings.Devices.Add(new DevicePreference {Id="second",Hidden=true,Alias="隐藏鼠标",LowBatteryThreshold=10});
         var deviceList=new BatterySnapshot(new[]{Reading("first","原始鼠标",25,true,false),Reading("second","同名鼠标",20,true,false)},DateTime.Now,null,false);
         using(var form=Create("DevicePreferencesForm",deviceSettings,deviceList,new Action<AppSettings>(value=>{if(failDeviceSave)throw new IOException("模拟保存失败");savedDevices=value.Clone();}))) {
+            Check("device preferences uses application icon", form.Icon != null && form.Icon.Size == new Size(32,32) && form.Icon.Handle != SystemIcons.Application.Handle);
             form.Show();form.Opacity=1;
             var selector=Field<ComboBox>(form,"_devices");
             int firstIndex=Enumerable.Range(0,selector.Items.Count).Single(i=>selector.Items[i].ToString().Contains("原始鼠标"));

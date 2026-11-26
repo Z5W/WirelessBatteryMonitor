@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Wireless battery monitor main application icon</title>
+  <defs>
+    <clipPath id="cavity"><rect x="0" y="0" width="330" height="144" rx="30"/></clipPath>
+    <g id="shell" fill="#383838">
+      <rect width="374" height="188" rx="49"/>
+      <rect x="354" y="49" width="48" height="90" rx="24"/>
+    </g>
+    <path id="bolt" d="M90 70 L155 84 L155 52 L232 106 L167 92 L167 124 Z" fill="#FFFFFF" stroke="#383838" stroke-width="7" stroke-linejoin="round"/>
+  </defs>
+  <rect width="1024" height="1024" rx="36" fill="#FFF2F5"/>
+  <g transform="translate(150 118)"><use href="#shell"/><g transform="translate(22 22)" clip-path="url(#cavity)"><rect width="330" height="144" fill="#FFF2F5"/><rect width="297" height="144" fill="#0BC779"/></g><use href="#bolt"/></g>
+  <g transform="translate(150 318)"><use href="#shell"/><g transform="translate(22 22)" clip-path="url(#cavity)"><rect width="330" height="144" fill="#FFF2F5"/><rect width="181.5" height="144" fill="#0BC779"/></g><use href="#bolt"/></g>
+  <g transform="translate(150 518)"><use href="#shell"/><g transform="translate(22 22)" clip-path="url(#cavity)"><rect width="330" height="144" fill="#FFF2F5"/><rect width="247.5" height="144" fill="#0BC779"/></g><use href="#bolt"/></g>
+  <g transform="translate(150 718)"><use href="#shell"/><g transform="translate(22 22)" clip-path="url(#cavity)"><rect width="330" height="144" fill="#FFF2F5"/><rect width="115.5" height="144" fill="#0BC779"/></g><use href="#bolt"/></g>
+  <g fill="#FFFFFF" stroke="#383838" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(746 212)">
+      <rect x="-66" y="-86" width="132" height="172" rx="64"/>
+      <path d="M0 -85 V-36 M-65 -18 H65" fill="none"/>
+      <rect x="-12" y="-43" width="24" height="53" rx="12" stroke-width="9"/>
+    </g>
+    <g transform="translate(746 412)">
+      <rect x="-108" y="-64" width="216" height="128" rx="25"/>
+      <g fill="#383838" stroke="none">
+        <rect x="-82" y="-39" width="25" height="22" rx="5"/><rect x="-47" y="-39" width="25" height="22" rx="5"/><rect x="-12" y="-39" width="25" height="22" rx="5"/><rect x="23" y="-39" width="25" height="22" rx="5"/><rect x="58" y="-39" width="25" height="22" rx="5"/>
+        <rect x="-82" y="-7" width="25" height="22" rx="5"/><rect x="-47" y="-7" width="25" height="22" rx="5"/><rect x="-12" y="-7" width="25" height="22" rx="5"/><rect x="23" y="-7" width="25" height="22" rx="5"/><rect x="58" y="-7" width="25" height="22" rx="5"/>
+        <rect x="-56" y="27" width="112" height="16" rx="5"/>
+      </g>
+    </g>
+    <g transform="translate(746 612)">
+      <path d="M-45 -62 C-78 -70 -94 -45 -106 -3 L-116 39 C-122 77 -94 82 -70 60 L-38 34 H38 L70 60 C94 82 122 77 116 39 L106 -3 C94 -45 78 -70 45 -62 Q0 -44 -45 -62 Z"/>
+      <path d="M-68 -12 H-28 M-48 -32 V8" stroke-width="17"/>
+      <g fill="#383838" stroke="none"><circle cx="49" cy="-30" r="10"/><circle cx="71" cy="-8" r="10"/><circle cx="27" cy="-8" r="10"/><circle cx="49" cy="14" r="10"/></g>
+    </g>
+    <g transform="translate(746 812)">
+      <path d="M-77 29 V-10 A77 77 0 0 1 77 -10 V29 H52 V-10 A52 52 0 0 0 -52 -10 V29 Z"/>
+      <rect x="-91" y="-6" width="52" height="92" rx="25"/>
+      <rect x="39" y="-6" width="52" height="92" rx="25"/>
+    </g>
+  </g>
+</svg>

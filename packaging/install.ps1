@@ -51,7 +51,7 @@ $shortcut.TargetPath = $exeTarget
 $shortcut.Arguments = '--open'
 $shortcut.WorkingDirectory = $target
 $shortcut.IconLocation = $exeTarget + ',0'
-$shortcut.WindowStyle = 7
+$shortcut.WindowStyle = 1
 $shortcut.Description = 'WirelessBatteryMoniter - wireless battery tray monitor'
 $shortcut.Save()
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -60,5 +60,5 @@ if ($existing) { Set-ItemProperty -LiteralPath $runKey -Name 'WirelessBatteryMon
 }
 Write-Host ('Installed and verified: ' + $exeTarget)
 Write-Host 'Updates preserve this executable path. Historical tray cache is not modified.'
-if ($Launch) { Start-Process -FilePath $exeTarget -ArgumentList '--open' -WorkingDirectory $target -WindowStyle Hidden }
+if ($Launch) { Start-Process -FilePath $exeTarget -ArgumentList '--open' -WorkingDirectory $target -WindowStyle Normal }
 

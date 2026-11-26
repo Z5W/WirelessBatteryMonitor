@@ -6,6 +6,7 @@ src/**/obj/
 # Local toolchain and historical scratch files
 .tools/
 .tmp/
+tmp/
 .scratch/
 src/**/UserData/
 # IDE

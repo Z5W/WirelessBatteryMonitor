@@ -22,6 +22,7 @@ namespace WirelessBatteryMoniter.UI
         public DevicePreferencesForm(AppSettings settings, BatterySnapshot snapshot, Action<AppSettings> save)
         {
             _working=settings.Clone();_save=save;
+            Icon = AppIcon.Load(32);
             _devices.AccessibleName="选择设备";_alias.AccessibleName="设备别名";_threshold.AccessibleName="此设备提醒阈值";
             Text="逐设备设置";Font=Theme.Font(10.5f);BackColor=Theme.Background;ForeColor=Theme.Text;
             AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);

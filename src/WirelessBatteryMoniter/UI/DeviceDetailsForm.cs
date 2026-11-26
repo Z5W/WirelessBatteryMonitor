@@ -8,6 +8,7 @@ namespace WirelessBatteryMoniter.UI
     internal sealed class DeviceDetailsForm : Form
     {
         public DeviceDetailsForm(DeviceBatteryInfo device) {
+            Icon = AppIcon.Load(32);
             MaximizeBox=false;
             SuspendLayout();Text="设备详情";AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
             ClientSize=new Size(480,420);MinimumSize=SizeFromClientSize(new Size(420,320));StartPosition=FormStartPosition.CenterParent;

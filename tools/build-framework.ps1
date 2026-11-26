@@ -17,7 +17,7 @@ $references += @(Get-ChildItem $contracts -Filter '*.winmd' | ForEach-Object { '
 $sourceRoot = Join-Path $root 'src\WirelessBatteryMoniter'
 $sources = @(Get-ChildItem $sourceRoot -Filter '*.cs' -Recurse | Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName })
 $fontResources = @(Get-ChildItem (Join-Path $sourceRoot 'Assets\Fonts') -File | Where-Object { $_.Extension -in '.ttf','.txt' } | ForEach-Object { '/resource:' + $_.FullName + ',WirelessBatteryMoniter.Fonts.' + $_.Name })
-& (Join-Path $frameworkDir 'csc.exe') /nologo /target:winexe /platform:anycpu /optimize+ "/out:$output\WirelessBatteryMoniter.exe" "/win32icon:$sourceRoot\Assets\app.ico" "/win32manifest:$sourceRoot\app.manifest" $references $fontResources $sources
+& (Join-Path $frameworkDir 'csc.exe') /nologo /target:winexe /platform:anycpu /optimize+ "/out:$output\WirelessBatteryMoniter.exe" "/win32icon:$sourceRoot\Assets\app.ico" "/resource:$sourceRoot\Assets\app.ico,WirelessBatteryMoniter.AppIcon" "/resource:$sourceRoot\Assets\app.png,WirelessBatteryMoniter.AppLogo" "/win32manifest:$sourceRoot\app.manifest" $references $fontResources $sources
 if ($LASTEXITCODE -ne 0) { throw 'Framework compilation failed.' }
 @'
 <?xml version="1.0" encoding="utf-8"?>

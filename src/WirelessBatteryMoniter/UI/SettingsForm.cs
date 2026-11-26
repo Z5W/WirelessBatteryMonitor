@@ -16,6 +16,7 @@ namespace WirelessBatteryMoniter.UI
         private readonly FlowLayoutPanel _content;
         public SettingsForm(AppSettings settings,Action<AppSettings> save,Action test) {
             SuspendLayout();_source=settings.Clone();_save=save;
+            Icon = AppIcon.Load(32);
             Text="设置 · WirelessBatteryMoniter";AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
             ClientSize=new Size(480,680);MinimumSize=SizeFromClientSize(new Size(420,500));MaximizeBox=false;MinimizeBox=false;ShowInTaskbar=false;
             StartPosition=FormStartPosition.CenterParent;BackColor=Theme.Background;ForeColor=Theme.Text;Font=Theme.Font(10.5f);KeyPreview=true;

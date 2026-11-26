@@ -13,6 +13,7 @@ namespace WirelessBatteryMoniter.UI
         {
             SuspendLayout();
             Text = "关于 WirelessBatteryMoniter";
+            Icon = AppIcon.Load(32);
             AutoScaleDimensions = new SizeF(96f, 96f);
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(540, 410);
@@ -49,7 +50,7 @@ namespace WirelessBatteryMoniter.UI
             var logo = new PictureBox
             {
                 Size = new Size(52, 52), SizeMode = PictureBoxSizeMode.Zoom,
-                Image = LoadLogo(), Margin = new Padding(0), BackColor = Color.Transparent
+                Image = AppIcon.LoadLogo(), Margin = new Padding(0), BackColor = Color.Transparent
             };
             heading.Controls.Add(logo, 0, 0);
             heading.SetRowSpan(logo, 2);
@@ -118,25 +119,6 @@ namespace WirelessBatteryMoniter.UI
                 if (label.MaximumSize.Width != width) label.MaximumSize = new Size(width, 0);
             };
             layout.Controls.Add(label);
-        }
-
-        private static Image LoadLogo()
-        {
-            try
-            {
-                Icon icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-                if (icon != null)
-                {
-                    using (icon)
-                    {
-                        return icon.ToBitmap();
-                    }
-                }
-            }
-            catch
-            {
-            }
-            return null;
         }
 
         private static void OpenFolder()

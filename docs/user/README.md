@@ -1,4 +1,4 @@
-﻿# WirelessBatteryMoniter 1.4.0
+﻿# WirelessBatteryMoniter 1.4.1
 
 Windows 10 1809+ / Windows 11 无线设备电量监控工具，需要 .NET Framework 4.8。
 

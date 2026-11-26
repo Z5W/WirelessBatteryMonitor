@@ -11,9 +11,9 @@
     <AssemblyName>WirelessBatteryMoniter</AssemblyName>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.4.0</Version>
-    <FileVersion>1.4.0.0</FileVersion>
-    <AssemblyVersion>1.4.0.0</AssemblyVersion>
+    <Version>1.4.1</Version>
+    <FileVersion>1.4.1.0</FileVersion>
+    <AssemblyVersion>1.4.1.0</AssemblyVersion>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Company>WirelessBatteryMoniter</Company>
     <Product>WirelessBatteryMoniter</Product>
@@ -34,6 +34,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\app.ico" LogicalName="WirelessBatteryMoniter.AppIcon" />
+    <EmbeddedResource Include="Assets\app.png" LogicalName="WirelessBatteryMoniter.AppLogo" />
     <EmbeddedResource Include="Assets\Fonts\*.ttf;Assets\Fonts\*.txt">
       <LogicalName>WirelessBatteryMoniter.Fonts.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

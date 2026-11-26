@@ -36,10 +36,10 @@ namespace WirelessBatteryMoniter.UI
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.Background; ForeColor = Theme.Text; Font = Theme.Font(10.5f);
             DoubleBuffered = true; KeyPreview = true;
-            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            Icon = AppIcon.Load(32);
             _header = new Panel { Width = 520, Dock = DockStyle.Top, Height = 140 };
             var logo = new PictureBox { Location = new Point(24,24), Size = new Size(40,40), SizeMode = PictureBoxSizeMode.Zoom };
-            if (Icon != null) logo.Image = Icon.ToBitmap();
+            logo.Image = AppIcon.LoadLogo();
             _header.Controls.Add(logo);
             AddLabel(_header,"无线设备电量",76,19,230,30,15,Theme.Text,FontStyle.Bold);
             AddLabel(_header,"WirelessBatteryMoniter",76,51,240,22,10.5f,Theme.TextMuted,FontStyle.Regular);

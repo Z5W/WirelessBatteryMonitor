@@ -24,6 +24,33 @@ namespace WirelessBatteryMoniter
 
         private static async Task RunChannelChecks(Action<string,bool> check)
         {
+            var blockedReceiver=new TaskCompletionSource<bool>();
+            int blockedCalls=0,healthyCalls=0;
+            var attached=new List<HidDeviceInfo> {
+                new HidDeviceInfo {Path="parallel-blocked",VendorId=0x3151,ProductId=0x5045,UsagePage=0xFFFF,Usage=2,FeatureReportLength=65},
+                new HidDeviceInfo {Path="parallel-healthy",VendorId=0x3151,ProductId=0x5045,UsagePage=0xFFFF,Usage=2,FeatureReportLength=65}
+            };
+            var available=attached;
+            using(var receiverScheduler=new HidReceiverScheduler(()=>available,group=>{
+                if(group[0].Path=="parallel-blocked") {Interlocked.Increment(ref blockedCalls);blockedReceiver.Task.GetAwaiter().GetResult();return new List<DeviceBatteryInfo>{Reading("blocked",10)};}
+                Interlocked.Increment(ref healthyCalls);return new List<DeviceBatteryInfo>{Reading("healthy",70)};
+            },timeoutMs:100))
+            {
+                try
+                {
+                    var first=await receiverScheduler.PollAsync(10,false,CancellationToken.None,false,40);
+                    check("blocked HID receiver does not prevent healthy publication",first.Devices.Any(d=>d.Id=="healthy" && !d.IsStale));
+                    await Task.Delay(120);
+                    var next=await receiverScheduler.PollAsync(10,true,CancellationToken.None,false,40);
+                    check("timed out receiver remains single flight while healthy receiver refreshes",blockedCalls==1 && healthyCalls>=2 && next.Devices.Any(d=>d.Id=="healthy" && !d.IsStale) && next.Error.Contains("超时"));
+                    available=new List<HidDeviceInfo>{attached[1]};
+                    await receiverScheduler.PollAsync(10,true,CancellationToken.None,false,40);
+                    available=attached;
+                    await receiverScheduler.PollAsync(10,true,CancellationToken.None,false,40);
+                    check("receiver reinsert does not overlap native cleanup",blockedCalls==1);
+                }
+                finally { blockedReceiver.TrySetResult(true); }
+            }
             var completedBeforeTimeout=new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
             using(var delayedCollection=new BatteryChannel(token=>completedBeforeTimeout.Task,()=>null,()=>{},timeoutMs:200))
             {

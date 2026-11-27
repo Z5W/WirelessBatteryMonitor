@@ -1,0 +1,48 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Restore Windows SDK contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force .tools | Out-Null
+          Invoke-WebRequest -UseBasicParsing 'https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.contracts/10.0.22621.3233/microsoft.windows.sdk.contracts.10.0.22621.3233.nupkg' -OutFile .tools/contracts.zip
+          Expand-Archive .tools/contracts.zip .tools/windows-sdk-contracts -Force
+      - name: Build and verify package
+        run: .\build.ps1 -FrameworkCompiler -Package
+      - name: Logic regression tests
+        run: .\tools\verify.ps1
+      - name: Release transaction regression tests
+        run: .\tools\test-release-transaction.ps1
+      - name: Isolated installation regression tests
+        run: .\tools\test-install.ps1
+      - name: Save synthetic test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logic-test-report
+          path: artifacts/tests/validation/WirelessBatteryMoniter-selftest.txt
+          if-no-files-found: ignore
+          retention-days: 7

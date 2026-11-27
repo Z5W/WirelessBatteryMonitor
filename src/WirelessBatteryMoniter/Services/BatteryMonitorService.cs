@@ -11,7 +11,7 @@ namespace WirelessBatteryMoniter.Services
     public sealed class BatteryMonitorService : IDisposable
     {
         private readonly BluetoothBatteryProvider _bluetoothProvider;
-        private readonly HidBatteryProvider _hidProvider;
+        private readonly HidReceiverScheduler _hidScheduler;
         private readonly DemoBatteryProvider _demoProvider;
         private readonly BatteryChannel _bluetoothChannel, _hidChannel;
         public int PollSeconds { get; set; }
@@ -20,10 +20,9 @@ namespace WirelessBatteryMoniter.Services
         {
             PollSeconds=10;
             _bluetoothProvider = new BluetoothBatteryProvider();
-            _hidProvider = new HidBatteryProvider();
+            _hidScheduler = new HidReceiverScheduler();
             _demoProvider = new DemoBatteryProvider();
             _bluetoothChannel = new BatteryChannel(_bluetoothProvider.GetDevicesAsync, ()=>_bluetoothProvider.LastWarning, _bluetoothProvider.Dispose);
-            _hidChannel = new BatteryChannel(_hidProvider.GetDevicesAsync, ()=>_hidProvider.LastWarning, _hidProvider.Dispose,backoffOnWarning:false);
         }
 
         public bool DemoMode { get; set; }
@@ -47,13 +46,9 @@ namespace WirelessBatteryMoniter.Services
             }
 
             int interval=Math.Max(5,PollSeconds);
-            if (_hidProvider!=null)
-            {
-                _hidProvider.PollSeconds=interval;
-                if (force) _hidProvider.RequestRefresh();
-            }
             var channels=await Task.WhenAll(_bluetoothChannel.PollAsync(interval,force,cancellationToken,waitForCompletion:waitForCompletion),
-                _hidChannel.PollAsync(interval,force,cancellationToken,waitForCompletion:waitForCompletion)).ConfigureAwait(false);
+                _hidScheduler!=null ? _hidScheduler.PollAsync(interval,force,cancellationToken,waitForCompletion) :
+                    _hidChannel.PollAsync(interval,force,cancellationToken,waitForCompletion:waitForCompletion)).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             string error=string.Join("；",channels.Select((s,i)=>string.IsNullOrEmpty(s.Error) ? null : (i==0 ? "蓝牙：" : "2.4G：")+s.Error).Where(e=>e!=null));
             return new BatterySnapshot(MergeDuplicateDevices(channels.SelectMany(s=>s.Devices).ToList()),
@@ -146,7 +141,8 @@ namespace WirelessBatteryMoniter.Services
         public void Dispose()
         {
             _bluetoothChannel.Dispose();
-            _hidChannel.Dispose();
+            if(_hidScheduler!=null)_hidScheduler.Dispose();
+            if(_hidChannel!=null)_hidChannel.Dispose();
             if (_demoProvider!=null) _demoProvider.Dispose();
         }
     }

@@ -27,7 +27,13 @@
 
 构建后的程序需要中完整性标签才能向普通 Explorer 注册托盘图标。构建脚本仅对指定产物设置标签，权限不足时停止；不要通过更改整个工作区标签处理。
 
-## 发布审查
+## GitHub CI
+
+`.github/workflows/windows-ci.yml` 在 main 推送、拉取请求及手动触发时使用 Windows Server 2022 运行。下载固定版本的 Windows SDK Contracts 后调用项目原有 Framework 构建、逻辑自检、包校验、发布事务及隔离安装测试。令牌只有读取源码权限，不需要私人密钥，不自动发布版本；只上传合成逻辑测试报告，保留 7 天。
+
+需要桌面的 `tools/test-ui.ps1` 和需要真实设备的 `verify.ps1 -Hardware` 仍在本地执行；CI 通过不等于这些场景通过。
+
+## 发布包审查
 
 发布目录为 `dist/v<版本>/`，只允许以下 10 个文件及对应 zip：
 

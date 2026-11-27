@@ -18,6 +18,8 @@ namespace WirelessBatteryMoniter.App
         private readonly AppSettings _settings;
         private readonly SettingsService _settingsService;
         private readonly BatteryMonitorService _monitor;
+        private readonly BatteryHistoryService _history;
+        private ToolStripMenuItem _historyItem;
         private readonly NotificationService _notifier;
         private readonly NotifyIcon _notifyIcon;
         private readonly TrayTextTip _textTip;
@@ -36,6 +38,7 @@ namespace WirelessBatteryMoniter.App
         private bool _disposed;
         private readonly CancellationTokenSource _shutdown = new CancellationTokenSource();
         private Task _activeScan;
+        private Task _historyWrite;
 
         private readonly ToolStripMenuItem _openItem;
         private readonly ToolStripMenuItem _refreshItem;
@@ -65,6 +68,7 @@ namespace WirelessBatteryMoniter.App
             _settings.DemoMode = demoMode;
             _settings.StartWithWindows = StartupService.IsEnabled();
             _settingsService = new SettingsService();
+            _history = new BatteryHistoryService(AppLog.DirectoryPath);
             _monitor = new BatteryMonitorService { DemoMode = demoMode, PollSeconds = settings.PollSeconds };
 
             _dispatcher = new Control();
@@ -201,6 +205,8 @@ namespace WirelessBatteryMoniter.App
 
             menu.Items.Add(settingsItem);
             menu.Items.Add(MenuItem("逐设备设置…", delegate { ShowDevicePreferences(); }));
+            _historyItem=MenuItem("电量历史…", delegate { using(var form=new BatteryHistoryForm(_history,_settings))form.ShowDialog(); });
+            menu.Items.Add(_historyItem);
             menu.Items.Add(aboutItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
@@ -258,6 +264,9 @@ namespace WirelessBatteryMoniter.App
                     _snapshot = snapshot;
                     ApplySnapshot();
                     _notifier.Process(snapshot);
+                    _historyWrite=Task.Run(()=>_history.Record(snapshot));
+                    await _historyWrite;
+                    if (!_exiting) _historyItem.Text=_history.Error==null ? "电量历史…" : "电量历史（保存或读取失败）…";
                 }
             }
             catch (OperationCanceledException)
@@ -314,7 +323,7 @@ namespace WirelessBatteryMoniter.App
             Icon newIcon = null;
             try
             {
-                newIcon = TrayIconRenderer.Create(count, minimum, _settings.LowBatteryThreshold);
+                newIcon = TrayIconRenderer.Create(count, minimum, _settings.LowBatteryThreshold,TrayIconRenderer.StatusColor(visible,_settings));
             }
             catch (Exception ex)
             {
@@ -628,13 +637,20 @@ namespace WirelessBatteryMoniter.App
             }
         }
 
-        private void ExitApplication()
+        private async void ExitApplication()
         {
             if (_exiting) return;
             _exiting = true;
             _shutdown.Cancel();
             if (_mainForm != null && !_mainForm.IsDisposed) _mainForm.CloseForExit();
-            ExitThread();
+            try
+            {
+                if (_historyWrite!=null) await _historyWrite;
+                await Task.Run(()=>_history.RetrySave());
+                if (_history.Error!=null) AppLog.Warn(_history.Error);
+            }
+            catch(Exception ex) { AppLog.Error("History flush on exit failed.",ex); }
+            finally { ExitThread(); }
         }
 
         protected override void Dispose(bool disposing)

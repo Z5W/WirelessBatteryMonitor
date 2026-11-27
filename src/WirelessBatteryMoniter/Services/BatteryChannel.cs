@@ -16,22 +16,26 @@ namespace WirelessBatteryMoniter.Services
         private readonly Action _dispose;
         private readonly Func<DateTime> _now;
         private readonly int _timeoutMs;
+        private readonly bool _backoffOnWarning;
         private Task<IReadOnlyList<DeviceBatteryInfo>> _running;
         private CancellationTokenSource _cancel;
         private IReadOnlyList<DeviceBatteryInfo> _cache = new List<DeviceBatteryInfo>();
         private DateTime _due;
+        private DateTime _completedAt;
+        private DateTime _runningCompletedAt;
+        private bool _runningWasCanceled;
         private string _error;
         private int _failures;
         private bool _disposed;
         internal BatteryChannel(Func<CancellationToken,Task<IReadOnlyList<DeviceBatteryInfo>>> read,
-            Func<string> warning, Action dispose, Func<DateTime> now=null, int timeoutMs=35000)
-        { _read=read; _warning=warning; _dispose=dispose; _now=now ?? (()=>DateTime.UtcNow); _timeoutMs=timeoutMs; }
+            Func<string> warning, Action dispose, Func<DateTime> now=null, int timeoutMs=35000, bool backoffOnWarning=true)
+        { _read=read; _warning=warning; _dispose=dispose; _now=now ?? (()=>DateTime.UtcNow); _timeoutMs=timeoutMs; _backoffOnWarning=backoffOnWarning; }
         internal static int RetrySeconds(int failures, int interval)
         { return Math.Min(300, Math.Max(5,interval) * (1 << Math.Min(5,Math.Max(0,failures)))); }
         private void Harvest(int interval)
         {
             if (_running==null || !_running.IsCompleted) return;
-            bool canceled=_cancel.IsCancellationRequested;
+            bool canceled=_runningWasCanceled;
             if (_running.Status==TaskStatus.RanToCompletion && !canceled)
             {
                 _cache=_running.Result;
@@ -44,12 +48,15 @@ namespace WirelessBatteryMoniter.Services
                 if (_running.IsFaulted) { var observed=_running.Exception; }
                 _cache=_cache.Select(d=>d.AsUnconfirmedCache()).ToList();
             }
-            _failures=string.IsNullOrEmpty(_error) ? 0 : Math.Min(5,_failures+1);
+            _completedAt=_runningCompletedAt;
+            bool failed=_running.Status!=TaskStatus.RanToCompletion || canceled || (_backoffOnWarning && !string.IsNullOrEmpty(_error));
+            _failures=failed ? Math.Min(5,_failures+1) : 0;
             _due=_now().AddSeconds(_failures==0 ? interval : RetrySeconds(_failures,interval));
             _running=null; _cancel.Dispose(); _cancel=null;
         }
-        internal async Task<BatterySnapshot> PollAsync(int interval, bool force, CancellationToken shutdown, int waitMs=1500)
+        internal async Task<BatterySnapshot> PollAsync(int interval, bool force, CancellationToken shutdown, int waitMs=1500, bool waitForCompletion=false)
         {
+            shutdown.ThrowIfCancellationRequested();
             Task running;
             lock (_gate)
             {
@@ -59,21 +66,30 @@ namespace WirelessBatteryMoniter.Services
                 {
                     _cancel=new CancellationTokenSource(); _cancel.CancelAfter(_timeoutMs);
                     var token=_cancel.Token;
-                    _running=Task.Run(async ()=>await _read(token).ConfigureAwait(false));
+                    _running=Task.Run(async ()=> {
+                        try { return await _read(token).ConfigureAwait(false); }
+                        finally
+                        {
+                            // Capture timeout state at completion, not when the UI
+                            // eventually collects the result after sleep or a busy turn.
+                            _runningWasCanceled=token.IsCancellationRequested;
+                            _runningCompletedAt=_now().ToLocalTime();
+                        }
+                    });
                 }
                 running=_running;
             }
-            if (running!=null) await Task.WhenAny(running,Task.Delay(waitMs,shutdown)).ConfigureAwait(false);
+            if (running!=null) await Task.WhenAny(running,Task.Delay(waitForCompletion ? _timeoutMs + 100 : waitMs,shutdown)).ConfigureAwait(false);
             shutdown.ThrowIfCancellationRequested();
             lock (_gate)
             {
                 if (_disposed) throw new ObjectDisposedException("BatteryChannel");
                 Harvest(interval);
                 bool pending=_running!=null;
-                string error=pending ? (_cancel.IsCancellationRequested ? "查询超时，等待驱动清理" : "查询进行中，暂用上次读数") : _error;
+                string error=pending ? (_cancel.IsCancellationRequested || waitForCompletion ? "查询超时，等待驱动清理" : null) : _error;
                 if (!pending && _failures>0) error += "（退避重试中）";
                 return new BatterySnapshot(pending ? _cache.Select(d=>d.AsUnconfirmedCache()) : _cache,
-                    DateTime.Now,error,false);
+                    _completedAt,error,false,pending);
             }
         }
         public void Dispose()

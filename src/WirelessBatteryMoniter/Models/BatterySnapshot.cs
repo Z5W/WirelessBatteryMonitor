@@ -9,7 +9,7 @@ namespace WirelessBatteryMoniter.Models
     /// </summary>
     public sealed class BatterySnapshot
     {
-        public BatterySnapshot(IEnumerable<DeviceBatteryInfo> devices, DateTime timestamp, string error, bool isDemo)
+        public BatterySnapshot(IEnumerable<DeviceBatteryInfo> devices, DateTime timestamp, string error, bool isDemo, bool isScanning = false)
         {
             Devices = (devices ?? Enumerable.Empty<DeviceBatteryInfo>())
                 .OrderByDescending(d => d.IsConnected)
@@ -20,11 +20,23 @@ namespace WirelessBatteryMoniter.Models
             Timestamp = timestamp;
             Error = error;
             IsDemo = isDemo;
+            IsScanning = isScanning;
         }
 
         public IReadOnlyList<DeviceBatteryInfo> Devices { get; private set; }
 
         public DateTime Timestamp { get; private set; }
+
+        public bool IsScanning { get; private set; }
+
+        public string ScanStatusText
+        {
+            get
+            {
+                string status = IsScanning ? "正在查询" : !string.IsNullOrEmpty(Error) ? "等待重试" : "等待下次扫描";
+                return status + (Timestamp == DateTime.MinValue ? " · 尚无已完成扫描" : " · 最近查询结束于 " + Timestamp.ToString("HH:mm:ss"));
+            }
+        }
 
         public string Error { get; private set; }
 
@@ -66,7 +78,7 @@ namespace WirelessBatteryMoniter.Models
 
         public int LowBatteryCount(int threshold)
         {
-            return Devices.Count(d => d.IsConnected && !d.IsStale && !d.IsSleeping && d.Level.HasValue && d.Level.Value <= threshold);
+            return Devices.Count(d => d.IsLowBattery(threshold));
         }
 
         public bool HasDevices
@@ -77,12 +89,12 @@ namespace WirelessBatteryMoniter.Models
         public BatterySnapshot WithFailure(string error)
         {
             return new BatterySnapshot(Devices.Select(d => d.AsUnconfirmedCache()),
-                DateTime.Now, error, IsDemo);
+                Timestamp, error, IsDemo, IsScanning);
         }
 
         public static BatterySnapshot Empty(bool isDemo)
         {
-            return new BatterySnapshot(Enumerable.Empty<DeviceBatteryInfo>(), DateTime.Now, null, isDemo);
+            return new BatterySnapshot(Enumerable.Empty<DeviceBatteryInfo>(), DateTime.MinValue, null, isDemo);
         }
     }
 }

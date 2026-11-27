@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WirelessBatteryMoniter.Models;
+using WirelessBatteryMoniter.Services;
 class UiRegression
 {
     static Assembly app;
@@ -36,6 +37,19 @@ class UiRegression
     static void Run()
     {
         var settings=new AppSettings { ShowDisconnected=true };
+        var history=new BatteryHistoryService(Path.Combine(output,"history-"+Guid.NewGuid().ToString("N")));
+        var historyReading=new DeviceBatteryInfo("history","历史鼠标","HID","",50,true,false,DateTime.Now.AddMinutes(-1),BatteryReadingSource.VoltageEstimate,BatteryChargeState.Charging);
+        history.Record(new BatterySnapshot(new[]{historyReading},DateTime.Now,null,false));
+        using(var historyForm=Create("BatteryHistoryForm",history,settings))
+        {
+            historyForm.Show();Application.DoEvents();
+            var grid=Field<DataGridView>(historyForm,"_grid");
+            Check("history shows estimated source and charge state",grid.Rows.Count==1 && grid.Rows[0].Cells[1].Value.ToString()=="约 50%" && grid.Rows[0].Cells[3].Value.ToString()=="正在充电");
+            Field<ComboBox>(historyForm,"_range").SelectedIndex=0;
+            Check("history time filter retains current sample",grid.Rows.Count==1);
+            Check("history uses application icon",historyForm.Icon!=null && historyForm.Icon.Size==new Size(32,32));
+            Capture(historyForm,"battery-history");
+        }
         using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
             form.Show();
             Check("main maximize disabled",!form.MaximizeBox);
@@ -68,7 +82,7 @@ class UiRegression
             Capture(form,"main-partial-error");
             var failed=new BatterySnapshot(new[]{a},DateTime.Now,null,false).WithFailure("模拟意外刷新失败");
             Call(form,"UpdateSnapshot",failed,settings);Call(form,"SetBusy",false);
-            Check("unexpected failure visible with retry",Field<Panel>(form,"_notice").Visible && Field<Control>(form,"_refreshButton").Enabled && Field<Control>(form,"_scan").Text.Contains("异常"));
+            Check("unexpected failure visible with retry",Field<Panel>(form,"_notice").Visible && Field<Control>(form,"_refreshButton").Enabled && Field<Control>(form,"_scan").Text.Contains("等待重试"));
             Check("unexpected failure retains cached device row",list.Controls.Count==1 && Field<Control>(form,"_pending").Text=="1 台待确认");
             settings.ShowDisconnected=false;
             var unknown=a.AsUnconfirmedCache();
@@ -78,7 +92,12 @@ class UiRegression
             Capture(form,"main-unknown-link");
             settings.ShowDisconnected=true;
             Update(form,settings,a);
-            Check("successful retry clears failure",!Field<Panel>(form,"_notice").Visible && !Field<Control>(form,"_pending").Visible && Field<Control>(form,"_scan").Text.Contains("完成"));
+            Check("successful retry clears failure",!Field<Panel>(form,"_notice").Visible && !Field<Control>(form,"_pending").Visible && Field<Control>(form,"_scan").Text.Contains("最近查询结束于"));
+            Call(form,"UpdateSnapshot",new BatterySnapshot(new[]{a},DateTime.MinValue,null,false,true),settings);
+            Check("pending scan shows progress without failure banner",!Field<Panel>(form,"_notice").Visible && Field<Control>(form,"_scan").Text.Contains("正在查询") && Field<Control>(form,"_scan").Text.Contains("尚无已完成扫描"));
+            Call(form,"UpdateSnapshot",new BatterySnapshot(new DeviceBatteryInfo[0],DateTime.MinValue,null,false,true),settings);
+            Check("first pending scan does not claim no supported devices",Field<Control>(form,"_empty").Text.Contains("正在查找设备") && !Field<Panel>(form,"_notice").Visible);
+            Update(form,settings,a);
 
             var many=Enumerable.Range(0,12).Select(i=>Reading(i.ToString(),"同名鼠标",20+i,true,false)).ToArray();
             Update(form,settings,many);
@@ -190,7 +209,14 @@ class UiRegression
         using(var form=Create("MainForm",new Action(()=>{}),new Func<Task>(()=>Task.FromResult(0)))) {
             form.Show();form.Opacity=1;Update(form,settings,charging);
             Check("charging card shows charge state before low battery",Descendants(form).Any(c=>c.Text=="正在充电") && !Descendants(form).Any(c=>c.Text=="电量很低"));
+            var chargingColor=Descendants(form).OfType<Label>().First(c=>c.Text=="10").ForeColor;
             Capture(form,"main-charging");
+            settings.Devices.Add(new DevicePreference {Id="custom-low",LowBatteryThreshold=5});
+            Update(form,settings,Reading("custom-low","自定义阈值",8,true,false));
+            Check("custom threshold below ten does not show low warning",!Field<Control>(form,"_low").Visible && !Descendants(form).Any(c=>c.Text=="电量很低") && Descendants(form).OfType<Label>().First(c=>c.Text=="8").ForeColor==chargingColor);
+            settings.PreferenceFor("custom-low").LowBatteryThreshold=10;
+            Update(form,settings,Reading("custom-low","自定义阈值",8,true,false));
+            Check("threshold edit immediately changes card and summary",Field<Control>(form,"_low").Visible && Descendants(form).Any(c=>c.Text=="电量很低") && Descendants(form).OfType<Label>().First(c=>c.Text=="8").ForeColor!=chargingColor);
             Update(form,settings,charging.AsUnconfirmedCache());
             Check("stale charging card shows unknown connection",!Descendants(form).Any(c=>c.Text=="正在充电") && Descendants(form).Any(c=>c.Text.Contains("连接状态未知")));
         }

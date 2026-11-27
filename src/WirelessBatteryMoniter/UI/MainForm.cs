@@ -100,12 +100,12 @@ namespace WirelessBatteryMoniter.UI
             int confirmed=snapshot.ConnectedCount;
             int pending=snapshot.PendingCount;
             _count.Text=confirmed+" 台已连接"+(snapshot.IsDemo ? " · 演示" : "");
-            int low=snapshot.Devices.Count(d=>d.IsConnected && !d.IsStale && !d.IsSleeping && !d.IsChargingOrCharged && d.Level.HasValue && d.Level.Value<=_settings.ThresholdFor(d.Id));
+            int low=snapshot.Devices.Count(d=>d.IsLowBattery(_settings.ThresholdFor(d.Id)));
             _low.Text=low+" 台电量偏低";_low.Visible=low>0;
             _pending.Text=pending+" 台待确认";_pending.Visible=pending>0;
             _notice.Visible=!string.IsNullOrEmpty(snapshot.Error);
             _message.Text=snapshot.HasDevices ? "部分设备读取失败" : "设备读取失败";
-            _scan.Text=(string.IsNullOrEmpty(snapshot.Error) ? "上轮扫描完成于 " : "上轮扫描异常于 ")+snapshot.Timestamp.ToString("HH:mm:ss");
+            _scan.Text=snapshot.ScanStatusText;
             var devices=snapshot.Devices.Where(d=>_settings.ShowDisconnected || !d.IsDisconnected).ToList();
             var ids=new HashSet<string>(devices.Select(d=>d.Id),StringComparer.OrdinalIgnoreCase);
             _list.SuspendLayout();
@@ -120,6 +120,7 @@ namespace WirelessBatteryMoniter.UI
             _list.Visible=devices.Count>0; _empty.Visible=devices.Count==0;
             _empty.Text="尚未发现支持读取电量的设备\r\n\r\n请检查设备连接，然后重新扫描";
             if(devices.Count==0 && _settings.Devices.Any(d=>d.Hidden))_empty.Text="暂无可显示设备\r\n\r\n可从托盘菜单的逐设备设置恢复隐藏设备";
+            if(devices.Count==0 && snapshot.IsScanning)_empty.Text="正在查找设备…\r\n\r\n查询尚未完成，请稍候";
             SetBusy(_busy);
         }
         private void ResizeRows() {

@@ -103,7 +103,7 @@ namespace WirelessBatteryMoniter.Models
         }
         public BatterySnapshot DisplaySnapshot(BatterySnapshot snapshot)
         {
-            return new BatterySnapshot(snapshot.Devices.Where(d=>!IsHidden(d.Id)).Select(DisplayDevice),snapshot.Timestamp,snapshot.Error,snapshot.IsDemo);
+            return new BatterySnapshot(snapshot.Devices.Where(d=>!IsHidden(d.Id)).Select(DisplayDevice),snapshot.Timestamp,snapshot.Error,snapshot.IsDemo,snapshot.IsScanning);
         }
         public AppSettings Clone()
         {

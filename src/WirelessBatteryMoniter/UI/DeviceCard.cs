@@ -38,15 +38,16 @@ namespace WirelessBatteryMoniter.UI
             _name.Text=device.Name;
             _level.Text=device.HasLevel ? (device.IsEstimated ? "约 " : "")+device.Level.Value.ToString() : "—";_percent.Visible=device.HasLevel;
             bool cached=device.IsStale || device.IsSleeping || !device.IsConnected;
-            Color color=cached ? Theme.TextMuted : Theme.BatteryColor(device.Level,threshold);
+            bool low=device.IsLowBattery(threshold);
+            Color color=cached ? Theme.TextMuted : device.IsChargingOrCharged ? Theme.Green : Theme.BatteryColor(device.Level,threshold);
             _level.ForeColor=_percent.ForeColor=color;
             _kind.Text=device.Kind;
             string type=TrayTextFormatter.DeviceType(device.OriginalName);
             _icon.Text=type=="鼠标" ? "\uE962" : type=="键盘" ? "\uE765" : type=="耳机" ? "\uE7F6" : type=="手柄" ? "\uE7FC" : "\uE770";
-            _state.Text=device.IsSleeping ? "休眠" : device.IsConnectionUnknown ? "连接状态未知" : !device.IsConnected ? "未连接" : device.IsStale ? "连接待确认" : device.IsChargingOrCharged ? device.ChargeStateText : !device.HasLevel ? "暂未获取电量" : device.Level<=10 ? "电量很低" : device.Level<=threshold ? "电量偏低" : "已连接";
+            _state.Text=device.IsSleeping ? "休眠" : device.IsConnectionUnknown ? "连接状态未知" : !device.IsConnected ? "未连接" : device.IsStale ? "连接待确认" : device.IsChargingOrCharged ? device.ChargeStateText : !device.HasLevel ? "暂未获取电量" : low && device.Level<=10 ? "电量很低" : low ? "电量偏低" : "已连接";
             if(cached && device.HasLevel) _state.Text+=" · 缓存读数";
-            _state.Fill=cached ? Theme.SurfaceRaised : device.HasLevel && device.Level<=10 ? Color.FromArgb(252,232,230) : device.HasLevel && device.Level<=threshold ? Color.FromArgb(255,240,218) : Theme.Surface;
-            _state.ForeColor=cached ? Theme.TextMuted : device.HasLevel && device.Level<=threshold ? color : Theme.TextMuted;
+            _state.Fill=cached ? Theme.SurfaceRaised : low && device.Level<=10 ? Color.FromArgb(252,232,230) : low ? Color.FromArgb(255,240,218) : Theme.Surface;
+            _state.ForeColor=cached ? Theme.TextMuted : low ? color : Theme.TextMuted;
             _time.Text=device.HasLevel ? (cached ? "上次读数 "+device.LevelText+" · " : "")+"读取于 "+device.LastSeen.ToString("HH:mm:ss") : "等待首次有效读数";
             _tip.SetToolTip(_name,device.Name);_tip.SetToolTip(this,"查看设备详情");
             AccessibleName=device.Name+" "+device.LevelText+" "+_state.Text+" "+_time.Text;
@@ -81,7 +82,7 @@ namespace WirelessBatteryMoniter.UI
         protected override void OnPaint(PaintEventArgs e) {
             base.OnPaint(e);if(_device==null)return;float s=Theme.DpiScale;Theme.Prepare(e.Graphics);
             using(var b=new SolidBrush(Theme.SurfaceRaised)) Theme.FillRounded(e.Graphics,b,_icon.Bounds,14*s);
-            Theme.DrawBatteryBar(e.Graphics,new RectangleF(20*s,_barY,Width-40*s,8*s),_device.Level,_device.IsStale||!_device.IsConnected ? Theme.TextMuted : Theme.BatteryColor(_device.Level,_threshold),Theme.SurfaceRaised);
+            Theme.DrawBatteryBar(e.Graphics,new RectangleF(20*s,_barY,Width-40*s,8*s),_device.Level,_device.IsStale||!_device.IsConnected||_device.IsSleeping ? Theme.TextMuted : _device.IsChargingOrCharged ? Theme.Green : Theme.BatteryColor(_device.Level,_threshold),Theme.SurfaceRaised);
             if(Focused && ShowFocusCues) using(var p=new Pen(Theme.Accent,2*s)) Theme.DrawRounded(e.Graphics,p,new RectangleF(2*s,2*s,Width-4*s,Height-4*s),24*s);
         }
         protected override AccessibleObject CreateAccessibilityInstance() {return new CardAccessibility(this);}

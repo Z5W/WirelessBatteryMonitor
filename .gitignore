@@ -19,4 +19,14 @@ src/**/UserData/
 # Local conversation archives and machine diagnostics
 docs/history/
 docs/validation/results/
+docs/validation/reports/validation-local-*.md
+# Runtime user data and credentials
+**/battery-history.json
+**/battery-history.json.tmp
+**/UserData/
+.env
+.env.*
+*.pfx
+*.p12
+*.key
 

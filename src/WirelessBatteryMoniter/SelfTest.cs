@@ -24,6 +24,84 @@ namespace WirelessBatteryMoniter
 
         private static async Task RunChannelChecks(Action<string,bool> check)
         {
+            var completedBeforeTimeout=new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
+            using(var delayedCollection=new BatteryChannel(token=>completedBeforeTimeout.Task,()=>null,()=>{},timeoutMs:200))
+            {
+                await delayedCollection.PollAsync(10,false,CancellationToken.None,1);
+                completedBeforeTimeout.SetResult(new[]{Reading("already-complete",70)});
+                await Task.Delay(300);
+                var result=await delayedCollection.PollAsync(10,false,CancellationToken.None,1);
+                check("late collection preserves query completed before timeout",result.Error==null && result.Devices.Count==1 && !result.Devices[0].IsStale);
+            }
+            DateTime retryNow=new DateTime(2026,1,1,0,0,0,DateTimeKind.Utc);
+            var schedule=new DeviceRetrySchedule(()=>retryNow);
+            schedule.Record("receiver|slot:1",false,10);
+            check("slot failure leaves other slots eligible",!schedule.CanRead("RECEIVER|slot:1",false) && schedule.CanRead("receiver|slot:2",false));
+            check("forced refresh bypasses slot backoff",schedule.CanRead("receiver|slot:1",true));
+            retryNow=retryNow.AddSeconds(20);
+            check("slot retry becomes due",schedule.CanRead("receiver|slot:1",false));
+            schedule.Record("receiver|slot:1",false,10);
+            retryNow=retryNow.AddSeconds(21);
+            check("repeated failure increases per-slot delay",!schedule.CanRead("receiver|slot:1",false));
+            schedule.Record("receiver|slot:1",true,10);
+            check("slot recovery resets backoff",schedule.CanRead("receiver|slot:1",false));
+            schedule.Record("removed",false,10);schedule.Retain(new[]{"receiver|slot:1"});
+            check("unplugged receiver loses old retry delay",schedule.CanRead("removed",false));
+            int badReads=0,goodReads=0;bool failReceiver=true;
+            var receivers=new List<HidDeviceInfo> {
+                new HidDeviceInfo {Path="bad-receiver",VendorId=0x3151,ProductId=0x5045,UsagePage=0xFFFF,Usage=2,FeatureReportLength=65},
+                new HidDeviceInfo {Path="good-receiver",VendorId=0x3151,ProductId=0x5045,UsagePage=0xFFFF,Usage=2,FeatureReportLength=65}
+            };
+            using(var provider=new HidBatteryProvider(()=>receivers,group=>{
+                if(group[0].Path=="bad-receiver") {badReads++;return failReceiver ? new List<DeviceBatteryInfo>() : new List<DeviceBatteryInfo>{Reading("bad",45)};}
+                goodReads++;return new List<DeviceBatteryInfo>{Reading("good",65)};
+            },()=>retryNow))
+            using(var channel=new BatteryChannel(provider.GetDevicesAsync,()=>provider.LastWarning,()=>{},()=>retryNow,backoffOnWarning:false))
+            {
+                await channel.PollAsync(10,false,CancellationToken.None,1000);
+                retryNow=retryNow.AddSeconds(10);
+                var healthy=await channel.PollAsync(10,false,CancellationToken.None,1000);
+                check("receiver warning does not back off healthy HID channel",badReads==1 && goodReads==2 && healthy.Devices.Count==1);
+                provider.RequestRefresh();failReceiver=false;
+                var recovered=await channel.PollAsync(10,true,CancellationToken.None,1000);
+                check("manual receiver refresh bypasses delay and recovers",badReads==2 && recovered.Devices.Count==2 && recovered.Error==null);
+                retryNow=retryNow.AddSeconds(10);failReceiver=true;
+                await channel.PollAsync(10,false,CancellationToken.None,1000);
+                retryNow=retryNow.AddSeconds(10);
+                var cached=await channel.PollAsync(10,false,CancellationToken.None,1000);
+                check("backoff keeps old reading unknown without delaying healthy receiver",cached.Devices.Any(d=>d.Id=="bad" && d.IsConnectionUnknown && d.IsStale) && goodReads==5 && badReads==3);
+            }
+            var deferred=new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
+            DateTime completed=new DateTime(2026,1,1,12,0,0,DateTimeKind.Utc);
+            using(var channel=new BatteryChannel(token=>deferred.Task,()=>null,()=>{},()=>completed))
+            {
+                var querying=await channel.PollAsync(10,false,CancellationToken.None,1);
+                check("pending query is not a failure or completed scan",querying.IsScanning && querying.Error==null && querying.Timestamp==DateTime.MinValue);
+                var filtered=new AppSettings().DisplaySnapshot(querying);
+                check("display filtering preserves pending scan state",filtered.IsScanning && filtered.Timestamp==DateTime.MinValue);
+                deferred.SetResult(new[]{Reading("delayed",55)});
+                var result=await channel.PollAsync(10,false,CancellationToken.None,200);
+                check("completed query publishes result and completion time",!result.IsScanning && result.Error==null && result.Timestamp==completed.ToLocalTime());
+                completed=completed.AddSeconds(2);
+                var idle=await channel.PollAsync(10,false,CancellationToken.None,1);
+                check("idle collection does not advance scan timestamp",idle.Timestamp==result.Timestamp && !idle.IsScanning);
+            }
+            using(var monitor=new BatteryMonitorService(
+                new BatteryChannel(async token=>{await Task.Delay(1800,token);return new[]{Reading("slow-diagnostic",55)};},()=>null,()=>{}),
+                new BatteryChannel(token=>Task.FromResult<IReadOnlyList<DeviceBatteryInfo>>(new[]{Reading("quick-diagnostic",65)}),()=>null,()=>{})))
+            {
+                var result=await monitor.ScanAsync(CancellationToken.None,true,true);
+                check("diagnostic waits beyond UI collection budget for both providers",!result.IsScanning && result.Error==null && result.Devices.Count==2);
+            }
+            var stuck=new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
+            using(var monitor=new BatteryMonitorService(
+                new BatteryChannel(token=>stuck.Task,()=>null,()=>{},timeoutMs:30),
+                new BatteryChannel(token=>Task.FromResult<IReadOnlyList<DeviceBatteryInfo>>(new[]{Reading("surviving",65)}),()=>null,()=>{})))
+            {
+                var result=await monitor.ScanAsync(CancellationToken.None,true,true);
+                check("diagnostic timeout preserves healthy channel and reports failure",result.Error!=null && result.Error.Contains("超时") && result.Devices.Count==1);
+                stuck.SetResult(new DeviceBatteryInfo[0]);
+            }
             DateTime now=new DateTime(2026,1,1);int calls=0,disposed=0;
             var blocked=new TaskCompletionSource<IReadOnlyList<DeviceBatteryInfo>>();
             var release=new TaskCompletionSource<bool>();
@@ -66,9 +144,68 @@ namespace WirelessBatteryMoniter
             }
         }
 
+        private static void RunHistoryChecks(Action<string,bool> check)
+        {
+            string directory=Path.Combine(Path.GetTempPath(),"battery-history-test-"+Guid.NewGuid().ToString("N"));
+            DateTime now=DateTime.UtcNow;
+            var history=new BatteryHistoryService(directory,()=>now);
+            Func<int,bool,BatteryReadingSource,DeviceBatteryInfo> reading=(level,stale,source)=>new DeviceBatteryInfo("history","History","HID","",level,true,stale,now,source);
+            Action<DeviceBatteryInfo> record=d=>history.Record(new BatterySnapshot(new[]{d},now,null,false));
+            var first=reading(50,false,BatteryReadingSource.DeviceReported);record(first);record(first);
+            check("history deduplicates same observed reading",history.Read().Count==1);
+            now=now.AddMinutes(1);record(reading(50,false,BatteryReadingSource.DeviceReported));
+            check("history unchanged value waits for heartbeat",history.Read().Count==1);
+            record(reading(40,true,BatteryReadingSource.DeviceReported));
+            check("history excludes cache",history.Read().Count==1);
+            record(reading(50,false,BatteryReadingSource.VoltageEstimate));
+            check("history retains source and breaks uncertain interval",history.Read().Count==2 && history.Read()[1].LevelText=="约 50%" && history.Read()[0].Session!=history.Read()[1].Session);
+            now=now.AddMinutes(10);record(reading(50,false,BatteryReadingSource.VoltageEstimate));
+            check("history records ten minute heartbeat",history.Read().Count==3);
+            history.Record(new BatterySnapshot(new[]{reading(1,false,BatteryReadingSource.Demo)},now,null,true));
+            check("history excludes demo snapshots",history.Read().Count==3);
+            history.RetrySave();var reloaded=new BatteryHistoryService(directory,()=>now);
+            check("history survives restart with UTC timestamps",reloaded.Read().Count==3 && Math.Abs((reloaded.Read()[0].Utc-first.LastSeen.ToUniversalTime()).TotalMilliseconds)<1 && reloaded.Read()[0].Utc.Kind==DateTimeKind.Utc);
+            now=now.AddDays(8);record(reading(60,false,BatteryReadingSource.DeviceReported));history.RetrySave();
+            check("history prunes beyond seven days",history.Read().Count==1 && new BatteryHistoryService(directory,()=>now).Read().Count==1);
+            string corrupt=Path.Combine(directory,"corrupt");Directory.CreateDirectory(corrupt);File.WriteAllText(Path.Combine(corrupt,"battery-history.json"),"invalid");
+            var broken=new BatteryHistoryService(corrupt,()=>now);broken.Record(new BatterySnapshot(new[]{reading(60,false,BatteryReadingSource.DeviceReported)},now,null,false));broken.RetrySave();
+            check("corrupt history is visible and never overwritten",broken.Error!=null && broken.Read().Count==0 && File.ReadAllText(Path.Combine(corrupt,"battery-history.json"))=="invalid");
+            string blocked=Path.Combine(directory,"blocked");File.WriteAllText(blocked,"file blocks directory");
+            var failed=new BatteryHistoryService(blocked,()=>now);failed.Record(new BatterySnapshot(new[]{reading(60,false,BatteryReadingSource.DeviceReported)},now,null,false));
+            check("history save failure retains pending points",failed.Error!=null && failed.Read().Count==1);
+            File.Delete(blocked);failed.RetrySave();
+            check("history save retry persists retained points",failed.Error==null && new BatteryHistoryService(blocked,()=>now).Read().Count==1);
+        }
+
         private static void RunRegressionChecks(Action<string, bool> check)
         {
+            int adcLevel; BatteryChargeState adcCharge;
+            check("ADC valid voltage and charging flags",HidBatteryProvider.TryParseAdcBattery(new byte[]{0x0F,0xA0,3},out adcLevel,out adcCharge) && adcLevel>0 && adcCharge==BatteryChargeState.Charging);
+            check("ADC unavailable report rejected",!HidBatteryProvider.TryParseAdcBattery(new byte[]{0x0F,0xA0,2},out adcLevel,out adcCharge));
+            check("ADC short report rejected",!HidBatteryProvider.TryParseAdcBattery(new byte[]{0x0F},out adcLevel,out adcCharge));
+            check("ADC implausible voltage rejected",!HidBatteryProvider.TryParseAdcBattery(new byte[]{0,0,1},out adcLevel,out adcCharge));
+            check("voltage charging status",HidBatteryProvider.ParseVoltageChargeState(new byte[]{15,160,128})==BatteryChargeState.Charging);
+            check("voltage charged status",HidBatteryProvider.ParseVoltageChargeState(new byte[]{15,160,129})==BatteryChargeState.Charged);
+            check("voltage not charging status",HidBatteryProvider.ParseVoltageChargeState(new byte[]{15,160,130})==BatteryChargeState.NotCharging);
+            check("voltage reserved status unknown",HidBatteryProvider.ParseVoltageChargeState(new byte[]{15,160,131})==BatteryChargeState.Unknown);
+            check("voltage missing flags unknown",HidBatteryProvider.ParseVoltageChargeState(new byte[]{15,160})==BatteryChargeState.Unknown);
+            RunHistoryChecks(check);
             RunChannelChecks(check).GetAwaiter().GetResult();
+            var thresholds=new AppSettings {LowBatteryThreshold=20};
+            thresholds.Devices.Add(new DevicePreference {Id="higher",LowBatteryThreshold=40});
+            thresholds.Devices.Add(new DevicePreference {Id="lower",LowBatteryThreshold=5});
+            var mixed=new BatterySnapshot(new[]{Reading("higher",30),Reading("lower",8)},DateTime.Now,null,false);
+            check("tray considers each threshold rather than minimum level",TrayIconRenderer.StatusColor(mixed,thresholds)==Theme.Amber);
+            check("level above custom five percent threshold is not red",Theme.BatteryColor(8,5)==Theme.Green);
+            thresholds.Devices[0].LowBatteryThreshold=25;
+            check("changing threshold immediately clears tray warning",TrayIconRenderer.StatusColor(mixed,thresholds)==Theme.Green);
+            thresholds.Devices[0].LowBatteryThreshold=40;thresholds.Devices[0].Hidden=true;
+            check("hidden device does not change tray warning",TrayIconRenderer.StatusColor(mixed,thresholds)==Theme.Green);
+            thresholds.Devices[0].Hidden=false;
+            var charging=new DeviceBatteryInfo("higher","Charging","2.4G","",4,true,false,DateTime.Now,BatteryReadingSource.DeviceReported,BatteryChargeState.Charging);
+            var chargingTraySnapshot=new BatterySnapshot(new[]{charging,Reading("lower",8)},DateTime.Now,null,false);
+            check("charging device does not trigger tray warning",TrayIconRenderer.StatusColor(chargingTraySnapshot,thresholds)==Theme.Green && !charging.IsLowBattery(40));
+            check("cached low battery does not trigger tray warning",TrayIconRenderer.StatusColor(new BatterySnapshot(new[]{Reading("higher",4,true,true),Reading("lower",8)},DateTime.Now,null,false),thresholds)==Theme.Green);
             var perDevice=new AppSettings();
             perDevice.Devices.Add(new DevicePreference {Id="one",Alias="办公鼠标",LowBatteryThreshold=30});
             perDevice.Devices.Add(new DevicePreference {Id="two",Hidden=true,LowBatteryThreshold=5});

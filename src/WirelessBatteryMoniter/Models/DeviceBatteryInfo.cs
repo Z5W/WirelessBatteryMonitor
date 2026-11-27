@@ -53,6 +53,10 @@ namespace WirelessBatteryMoniter.Models
         public string OriginalName { get; private set; }
         public DeviceActivityState ActivityState { get; private set; }
         public bool IsSleeping { get { return ActivityState == DeviceActivityState.Asleep; } }
+        public bool IsLowBattery(int threshold)
+        {
+            return IsConnected && !IsStale && !IsSleeping && !IsChargingOrCharged && Level.HasValue && Level.Value <= threshold;
+        }
         public string ActivityStateText { get { return IsSleeping ? "休眠" : ActivityState == DeviceActivityState.Awake ? "活动中" : "未知"; } }
         public DeviceBatteryInfo WithDisplayName(string name)
         {

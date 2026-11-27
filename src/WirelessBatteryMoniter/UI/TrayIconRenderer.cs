@@ -4,14 +4,25 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.IO;
+using System.Linq;
+using WirelessBatteryMoniter.Models;
 
 namespace WirelessBatteryMoniter.UI
 {
     internal static class TrayIconRenderer
     {
-        public static Icon Create(int deviceCount, int? minimumLevel, int threshold)
+        internal static Color StatusColor(BatterySnapshot snapshot, AppSettings settings)
         {
-            using (Bitmap bitmap = CreateBitmap(deviceCount, minimumLevel, threshold))
+            var visible=settings.DisplaySnapshot(snapshot);
+            var low=visible.Devices.Where(d=>d.IsLowBattery(settings.ThresholdFor(d.Id))).ToList();
+            if (low.Any(d=>d.Level.Value<=10)) return Theme.Red;
+            if (low.Count>0) return Theme.Amber;
+            return visible.MinimumLevel.HasValue ? Theme.Green : Theme.TextFaint;
+        }
+
+        public static Icon Create(int deviceCount, int? minimumLevel, int threshold, Color? statusColor=null)
+        {
+            using (Bitmap bitmap = CreateBitmap(deviceCount, minimumLevel, threshold,statusColor))
             {
                 // Embed the PNG in a one-image .ico and let Icon parse it. This gives
                 // the shell a self-contained icon handle and avoids lifetime problems
@@ -44,7 +55,7 @@ namespace WirelessBatteryMoniter.UI
             }
         }
 
-        public static Bitmap CreateBitmap(int deviceCount, int? minimumLevel, int threshold)
+        public static Bitmap CreateBitmap(int deviceCount, int? minimumLevel, int threshold, Color? statusColor=null)
         {
             Bitmap bitmap = new Bitmap(32, 32, PixelFormat.Format32bppArgb);
             using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -55,7 +66,7 @@ namespace WirelessBatteryMoniter.UI
                 graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
 
                 Color outline = deviceCount > 0 ? Color.FromArgb(238, 244, 252) : Color.FromArgb(125, 139, 158);
-                Color fillColor = Theme.BatteryColor(minimumLevel, threshold);
+                Color fillColor = statusColor ?? Theme.BatteryColor(minimumLevel, threshold);
 
                 // Battery shell.
                 using (Pen shell = new Pen(outline, 2.2f))

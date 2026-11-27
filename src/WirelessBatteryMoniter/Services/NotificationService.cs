@@ -63,7 +63,7 @@ namespace WirelessBatteryMoniter.Services
                 }
                 if (!device.Level.HasValue) continue;
 
-                if (device.Level.Value <= threshold)
+                if (device.IsLowBattery(threshold))
                 {
                     if (!_alertedDeviceIds.Contains(device.Id))
                     {

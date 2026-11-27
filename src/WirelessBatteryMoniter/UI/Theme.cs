@@ -60,7 +60,7 @@ namespace WirelessBatteryMoniter.UI
         public static Color BatteryColor(int? level, int threshold)
         {
             if (!level.HasValue) return TextFaint;
-            if (level.Value <= 10) return Red;
+            if (level.Value <= threshold && level.Value <= 10) return Red;
             if (level.Value <= threshold) return Amber;
             return Green;
         }

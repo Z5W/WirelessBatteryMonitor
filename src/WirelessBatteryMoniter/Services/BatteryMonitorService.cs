@@ -23,12 +23,19 @@ namespace WirelessBatteryMoniter.Services
             _hidProvider = new HidBatteryProvider();
             _demoProvider = new DemoBatteryProvider();
             _bluetoothChannel = new BatteryChannel(_bluetoothProvider.GetDevicesAsync, ()=>_bluetoothProvider.LastWarning, _bluetoothProvider.Dispose);
-            _hidChannel = new BatteryChannel(_hidProvider.GetDevicesAsync, ()=>_hidProvider.LastWarning, _hidProvider.Dispose);
+            _hidChannel = new BatteryChannel(_hidProvider.GetDevicesAsync, ()=>_hidProvider.LastWarning, _hidProvider.Dispose,backoffOnWarning:false);
         }
 
         public bool DemoMode { get; set; }
 
-        public async Task<BatterySnapshot> ScanAsync(CancellationToken cancellationToken, bool force = false)
+        internal BatteryMonitorService(BatteryChannel bluetoothChannel, BatteryChannel hidChannel)
+        {
+            PollSeconds=10;
+            _bluetoothChannel=bluetoothChannel;
+            _hidChannel=hidChannel;
+        }
+
+        public async Task<BatterySnapshot> ScanAsync(CancellationToken cancellationToken, bool force = false, bool waitForCompletion = false)
         {
             DateTime started = DateTime.Now;
             if (DemoMode)
@@ -40,12 +47,17 @@ namespace WirelessBatteryMoniter.Services
             }
 
             int interval=Math.Max(5,PollSeconds);
-            var channels=await Task.WhenAll(_bluetoothChannel.PollAsync(interval,force,cancellationToken),
-                _hidChannel.PollAsync(interval,force,cancellationToken)).ConfigureAwait(false);
+            if (_hidProvider!=null)
+            {
+                _hidProvider.PollSeconds=interval;
+                if (force) _hidProvider.RequestRefresh();
+            }
+            var channels=await Task.WhenAll(_bluetoothChannel.PollAsync(interval,force,cancellationToken,waitForCompletion:waitForCompletion),
+                _hidChannel.PollAsync(interval,force,cancellationToken,waitForCompletion:waitForCompletion)).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             string error=string.Join("；",channels.Select((s,i)=>string.IsNullOrEmpty(s.Error) ? null : (i==0 ? "蓝牙：" : "2.4G：")+s.Error).Where(e=>e!=null));
-            return BuildSnapshot(MergeDuplicateDevices(channels.SelectMany(s=>s.Devices).ToList()),started,
-                string.IsNullOrEmpty(error) ? null : error,false);
+            return new BatterySnapshot(MergeDuplicateDevices(channels.SelectMany(s=>s.Devices).ToList()),
+                channels.Max(s=>s.Timestamp),string.IsNullOrEmpty(error) ? null : error,false,channels.Any(s=>s.IsScanning));
         }
 
         // Wait for cancellation cleanup before allowing another scan or disposing providers.
@@ -135,7 +147,7 @@ namespace WirelessBatteryMoniter.Services
         {
             _bluetoothChannel.Dispose();
             _hidChannel.Dispose();
-            _demoProvider.Dispose();
+            if (_demoProvider!=null) _demoProvider.Dispose();
         }
     }
 }

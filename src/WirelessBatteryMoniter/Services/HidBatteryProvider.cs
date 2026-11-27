@@ -20,6 +20,16 @@ namespace WirelessBatteryMoniter.Services
         private readonly Dictionary<string, DeviceBatteryInfo> _lastKnown =
             new Dictionary<string, DeviceBatteryInfo>(StringComparer.OrdinalIgnoreCase);
         private CancellationToken _scanToken;
+        private readonly DeviceRetrySchedule _retry;
+        private readonly Func<List<HidDeviceInfo>> _enumerate;
+        private readonly Func<List<HidDeviceInfo>,List<DeviceBatteryInfo>> _readGroup;
+        private int _refreshRequested;
+        private bool _forceScan;
+        public int PollSeconds { get; set; }
+        internal void RequestRefresh() { Interlocked.Exchange(ref _refreshRequested, 1); }
+        public HidBatteryProvider() : this(HidEnumerator.Enumerate,null,null) { }
+        internal HidBatteryProvider(Func<List<HidDeviceInfo>> enumerate, Func<List<HidDeviceInfo>,List<DeviceBatteryInfo>> readGroup, Func<DateTime> now)
+        { _enumerate=enumerate; _readGroup=readGroup; _retry=new DeviceRetrySchedule(now); PollSeconds=10; }
         public string LastWarning { get; private set; }
 
         public string Name
@@ -37,12 +47,13 @@ namespace WirelessBatteryMoniter.Services
         private IReadOnlyList<DeviceBatteryInfo> Scan(CancellationToken cancellationToken)
         {
             _scanToken = cancellationToken;
+            _forceScan = Interlocked.Exchange(ref _refreshRequested, 0) != 0;
             LastWarning = null;
             List<DeviceBatteryInfo> result = new List<DeviceBatteryInfo>();
             List<HidDeviceInfo> interfaces;
             try
             {
-                interfaces = HidEnumerator.Enumerate();
+                interfaces = _enumerate();
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -65,13 +76,20 @@ namespace WirelessBatteryMoniter.Services
                 group.Add(info);
             }
 
+            _retry.Retain(groups.Keys.SelectMany(key => new[] {key}.Concat(Enumerable.Range(1,6).Select(slot => key + "|slot:" + slot))));
             foreach (KeyValuePair<string, List<HidDeviceInfo>> entry in groups)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!_retry.CanRead(entry.Key, _forceScan))
+                {
+                    LastWarning="部分 HID 接收器等待重试，保留缓存读数";
+                    continue;
+                }
                 try
                 {
                     List<DeviceBatteryInfo> found = new List<DeviceBatteryInfo>();
-                    if (entry.Value[0].VendorId == 0x046D)
+                    if (_readGroup!=null) found.AddRange(_readGroup(entry.Value));
+                    else if (entry.Value[0].VendorId == 0x046D)
                         found.AddRange(TryLogitech(entry.Value));
                     else
                     {
@@ -80,6 +98,9 @@ namespace WirelessBatteryMoniter.Services
                             : TryCompx(entry.Value) ?? TryAtk(entry.Value);
                         if (device != null) found.Add(device);
                     }
+                    // Logitech slots have their own schedule; a missing slot must not
+                    // delay healthy slots or compound receiver and slot retry delays.
+                    if (entry.Value[0].VendorId != 0x046D) _retry.Record(entry.Key,found.Count>0,PollSeconds);
                     if(found.Count==0) LastWarning="部分 HID 接收器未返回有效读数";
                     foreach (DeviceBatteryInfo device in found)
                     {
@@ -95,6 +116,7 @@ namespace WirelessBatteryMoniter.Services
                 }
                 catch (Exception ex)
                 {
+                    _retry.Record(entry.Key,false,PollSeconds);
                     LastWarning="部分 HID 设备查询失败";
                     LogOnce("hid-group-" + entry.Key, "HID 2.4G read failed for " + entry.Key + ": " + ex.Message);
                 }
@@ -343,14 +365,29 @@ namespace WirelessBatteryMoniter.Services
                     for (int slot = 1; slot <= 6; slot++)
                     {
                         _scanToken.ThrowIfCancellationRequested();
-                        DeviceBatteryInfo device = ReadLogitechSlot(channel, groupKey, slot);
-                        if (device != null) results.Add(device);
+                        string retryKey=groupKey + "|slot:" + slot;
+                        if (!_retry.CanRead(retryKey,_forceScan)) continue;
+                        try
+                        {
+                            DeviceBatteryInfo device = ReadLogitechSlot(channel, groupKey, slot);
+                            _retry.Record(retryKey,device!=null,PollSeconds);
+                            if (device != null) results.Add(device);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            _retry.Record(retryKey,false,PollSeconds);
+                            LastWarning="部分罗技设备查询失败，等待重试";
+                            LogOnce("logitech-slot-"+retryKey,ex.Message);
+                        }
                     }
+                    _retry.Record(groupKey,true,PollSeconds);
                 }
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
+                _retry.Record(groupKey,false,PollSeconds);
                 LogOnce("logitech-" + groupKey, "Logitech HID read failed: " + ex.Message);
             }
             return results;
@@ -437,9 +474,18 @@ namespace WirelessBatteryMoniter.Services
                     int mv = (reply.Params[0] << 8) | reply.Params[1];
                     if (mv >= 2500 && mv <= 5000)
                     {
-                        return MakeDevice(channel.LongInfo, name, VoltageToPercent(mv), "logitech-" + slot, BatteryReadingSource.VoltageEstimate);
+                        return MakeDevice(channel.LongInfo, name, VoltageToPercent(mv), "logitech-" + slot, BatteryReadingSource.VoltageEstimate, ParseVoltageChargeState(reply.Params));
                     }
                 }
+            }
+
+            int adc = channel.FindFeature(slot, 0x1F20);
+            if (adc > 0)
+            {
+                var reply = channel.Request(slot, adc, 0x00, new byte[0], 500);
+                int adcLevel; BatteryChargeState adcCharge;
+                if (reply.Success && TryParseAdcBattery(reply.Params,out adcLevel,out adcCharge))
+                    return MakeDevice(channel.LongInfo,name,adcLevel,"logitech-"+slot,BatteryReadingSource.VoltageEstimate,adcCharge);
             }
 
             int registerLevel;
@@ -467,6 +513,32 @@ namespace WirelessBatteryMoniter.Services
                 case 3: return BatteryChargeState.Charged;
                 default: return BatteryChargeState.Unknown; // Errors and reserved states.
             }
+        }
+
+        // HID++ voltage/ADC field meanings cross-checked against Solaar hidpp20.py.
+        internal static BatteryChargeState ParseVoltageChargeState(byte[] data)
+        {
+            if (data==null || data.Length<3) return BatteryChargeState.Unknown;
+            int flags=data[2];
+            if ((flags & 0x80)==0) return BatteryChargeState.NotCharging;
+            switch (flags & 3)
+            {
+                case 0: return BatteryChargeState.Charging;
+                case 1: return BatteryChargeState.Charged;
+                case 2: return BatteryChargeState.NotCharging;
+                default: return BatteryChargeState.Unknown;
+            }
+        }
+
+        internal static bool TryParseAdcBattery(byte[] data,out int level,out BatteryChargeState charge)
+        {
+            level=0; charge=BatteryChargeState.Unknown;
+            if (data==null || data.Length<3 || (data[2]&1)==0) return false;
+            int mv=(data[0]<<8)|data[1];
+            if (mv<2500 || mv>5000) return false;
+            level=VoltageToPercent(mv);
+            charge=(data[2]&2)!=0 ? BatteryChargeState.Charging : BatteryChargeState.NotCharging;
+            return true;
         }
 
         private string ReadLogitechName(LogitechChannel channel, int slot)
